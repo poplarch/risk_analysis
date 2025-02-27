@@ -1,0 +1,7 @@
+{
+    "ahp_excel_inprefix": "ahp_template",
+    "ahp_excel_outprefix": "ahp_results",
+    "fuzzy_excel": "fuzzy_risk_evaluation.xlsx",
+    "input_dir": "input"
+    "output_dir": "output"
+}
