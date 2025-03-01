@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 import unittest
+
 import numpy as np
+
 from ahp_processor import ConsistencyChecker, WeightCalculator
+
 
 class TestAHP(unittest.TestCase):
     """AHP 模块的单元测试"""
