@@ -1,13 +1,41 @@
 # -*- coding: utf-8 -*-
 import copy
+import functools
 import logging
 import os
+import traceback
 from typing import List, Dict, Tuple, Optional, Callable, Any
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.font_manager import FontProperties
 
+def visualization_error_handler(func):
+    """
+    可视化函数异常处理装饰器
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logging.error(f"可视化函数 {func.__name__} 执行出错: {str(e)}", exc_info=True)
+            # 确保关闭任何打开的图形
+            plt.close('all')
+            # 如果提供了输出目录，生成错误报告
+            output_dir = kwargs.get('output_dir')
+            if output_dir:
+                error_file = os.path.join(output_dir, f"visualization_error_{func.__name__}.txt")
+                try:
+                    with open(error_file, 'w', encoding='utf-8') as f:
+                        f.write(f"可视化函数 {func.__name__} 执行出错: {str(e)}\n")
+                        f.write(f"参数: {args}, {kwargs}\n")
+                        f.write(f"异常跟踪:\n{traceback.format_exc()}")
+                except:
+                    pass
+            return None
+    return wrapper
 
 class EnhancedFuzzyEvaluator:
     """
@@ -55,7 +83,11 @@ class EnhancedFuzzyEvaluator:
         
         # 配置日志记录器
         self.logger = logging.getLogger(__name__)
-    
+
+        # 初始化字体属性
+        font_prop, _ = self.configure_chinese_font()
+        self.font_properties = font_prop
+
     def _create_membership_functions(self, params: Dict[str, Tuple[float, float, float, float]]) -> Dict[str, Callable]:
         """
         创建梯形隶属度函数
@@ -448,17 +480,88 @@ class EnhancedFuzzyEvaluator:
         self.evaluation_cache["latest_sensitivity"] = result
         
         return result
-    
+
+    def _calculate_cross_sensitivity_matrix(self,
+                                            factor1_values: np.ndarray,
+                                            factor2_values: np.ndarray,
+                                            baseline_risk: float,
+                                            variation_steps: int) -> np.ndarray:
+        """
+        计算交叉敏感性矩阵，增强NaN处理能力
+
+        Args:
+            factor1_values (np.ndarray): 第一个因素的变化率数组
+            factor2_values (np.ndarray): 第二个因素的变化率数组
+            baseline_risk (float): 基准风险值
+            variation_steps (int): 变化步数
+
+        Returns:
+            np.ndarray: 交叉敏感性矩阵，包含适当的NaN处理
+        """
+        # 验证输入数据完整性
+        if not np.isfinite(baseline_risk):
+            logging.error("基准风险值非有限数值")
+            return np.full((variation_steps + 1, variation_steps + 1), np.nan)
+
+        # 预处理输入数组 - 将无穷值替换为NaN
+        factor1_values = np.where(np.isfinite(factor1_values), factor1_values, np.nan)
+        factor2_values = np.where(np.isfinite(factor2_values), factor2_values, np.nan)
+
+        # 计算有效数据点的百分比
+        valid_f1 = np.sum(np.isfinite(factor1_values))
+        valid_f2 = np.sum(np.isfinite(factor2_values))
+        valid_data_ratio = (valid_f1 * valid_f2) / (len(factor1_values) * len(factor2_values))
+
+        # 如果有效数据不足则终止
+        if valid_data_ratio < 0.5:  # 可配置阈值
+            logging.warning(f"交叉敏感性分析的有效数据不足 ({valid_data_ratio:.2%})")
+            # 返回NaN矩阵而非None，以保持接口一致性
+            return np.full((variation_steps + 1, variation_steps + 1), np.nan)
+
+        # 生成交叉敏感性矩阵，明确处理NaN
+        sensitivity_matrix = np.full((variation_steps + 1, variation_steps + 1), np.nan)
+
+        # 计算风险指数矩阵
+        for i, var1 in enumerate(factor1_values):
+            for j, var2 in enumerate(factor2_values):
+                # 跳过NaN输入值
+                if not (np.isfinite(var1) and np.isfinite(var2)):
+                    continue
+
+                try:
+                    # 修改当前权重配置
+                    modified_weights = self._generate_modified_weights(
+                        self.current_factor_weights,
+                        {self.current_factors[0]: var1, self.current_factors[1]: var2}
+                    )
+
+                    # 使用修改后的权重计算风险指数
+                    result = self.evaluate(
+                        self.current_expert_scores,
+                        modified_weights,
+                        self.current_expert_weights,
+                        self.dynamic_enabled
+                    )
+
+                    # 存储风险指数
+                    sensitivity_matrix[i, j] = result["risk_index"]
+                except Exception as e:
+                    logging.error(f"计算位置 ({i},{j}) 的敏感性出错: {str(e)}")
+                    # 保持为NaN
+
+        return sensitivity_matrix
+
     def cross_sensitivity_analysis(self,
-                                  factor_weights: Dict[str, float],
-                                  expert_scores: Dict[str, np.ndarray],
-                                  factors: List[str],
-                                  use_dynamic: Optional[bool] = None,
-                                  variation_range: float = 0.2,
-                                  steps: int = 5) -> Dict[str, Any]:
+                                   factor_weights: Dict[str, float],
+                                   expert_scores: Dict[str, np.ndarray],
+                                   factors: List[str],
+                                   expert_weights: Optional[list[float]] = None,
+                                   use_dynamic: Optional[bool] = None,
+                                   variation_range: float = 0.2,
+                                   steps: int = 5) -> Dict[str, Any]:
         """
         交叉敏感性分析，评估两个风险因素同时变化的影响
-        
+
         Args:
             factor_weights (Dict[str, float]): 因素权重
             expert_scores (Dict[str, np.ndarray]): 专家评分
@@ -466,72 +569,56 @@ class EnhancedFuzzyEvaluator:
             use_dynamic (Optional[bool]): 是否使用动态隶属度函数
             variation_range (float): 权重变化范围 (±)
             steps (int): 变化步数
-            
+
         Returns:
             Dict[str, Any]: 交叉敏感性分析结果
-                {
-                    "risk_matrix": 风险指数矩阵,
-                    "variations": 变化率列表,
-                    "factors": 分析的风险因素,
-                    "baseline_risk_index": 基准风险指数
-                }
         """
         if len(factors) != 2:
             raise ValueError("交叉敏感性分析需要指定两个风险因素")
-        
+
         # 确保因素存在于权重和评分中
         for factor in factors:
             if factor not in factor_weights or factor not in expert_scores:
                 raise ValueError(f"风险因素 '{factor}' 在权重或评分中不存在")
-        
+
         # 计算基准评价结果
-        baseline_result = self.evaluate(expert_scores, factor_weights, use_dynamic)
+        # 保存当前分析状态供辅助方法使用
+        self.current_factor_weights = factor_weights
+        self.current_expert_scores = expert_scores
+        self.current_expert_weights = expert_weights
+        self.current_factors = factors
+        self.dynamic_enabled = use_dynamic if use_dynamic is not None else self.dynamic_enabled
+
+        baseline_result = self.evaluate(expert_scores, factor_weights, expert_weights, use_dynamic)
         baseline_risk_index = baseline_result["risk_index"]
-        
-        # 初始化风险矩阵
-        risk_matrix = np.zeros((steps + 1, steps + 1))
-        
+
         # 计算权重变化步长和变化率列表
         step_size = 2 * variation_range / steps
         variations = [-variation_range + i * step_size for i in range(steps + 1)]
-        
+
         # 提取两个因素
         factor1, factor2 = factors
-        original_weight1 = factor_weights[factor1]
-        original_weight2 = factor_weights[factor2]
-        
-        # 对两个因素同时进行变化分析
-        for i, var1 in enumerate(variations):
-            for j, var2 in enumerate(variations):
-                # 创建修改后的权重字典
-                modified_weights = copy.deepcopy(factor_weights)
-                
-                # 计算新权重 (确保不为负)
-                new_weight1 = max(0.001, original_weight1 * (1 + var1))
-                new_weight2 = max(0.001, original_weight2 * (1 + var2))
-                
-                modified_weights[factor1] = new_weight1
-                modified_weights[factor2] = new_weight2
-                
-                # 归一化
-                weight_sum = sum(modified_weights.values())
-                modified_weights = {k: v/weight_sum for k, v in modified_weights.items()}
-                
-                # 使用修改后的权重重新计算风险评价
-                result = self.evaluate(expert_scores, modified_weights, use_dynamic)
-                risk_matrix[i, j] = result["risk_index"]
-        
+
+        # 使用辅助方法生成敏感性矩阵
+        risk_matrix = self._calculate_cross_sensitivity_matrix(
+            [1 + v for v in variations],  # factor1的变化率
+            [1 + v for v in variations],  # factor2的变化率
+            baseline_risk_index,
+            steps
+        )
+
         # 整合结果
         result = {
             "risk_matrix": risk_matrix,
             "variations": variations,
             "factors": factors,
-            "baseline_risk_index": baseline_risk_index
+            "baseline_risk_index": baseline_risk_index,
+            "has_valid_data": not np.all(np.isnan(risk_matrix))
         }
-        
+
         # 缓存结果
         self.evaluation_cache["latest_cross_sensitivity"] = result
-        
+
         return result
 
     @staticmethod
@@ -586,14 +673,14 @@ class EnhancedFuzzyEvaluator:
         配置适用于当前操作系统的中文字体
 
         Returns:
-            FontProperties: 中文字体属性对象
+            Tuple[FontProperties, bool]: 中文字体属性对象和配置成功标志
         """
-
         # 正确导入platform模块并立即使用，避免变量覆盖
         import platform as sys_platform
         system_name = sys_platform.system()
 
         font_prop = None
+        config_success = False
 
         try:
             # 基于操作系统类型实施不同的字体策略
@@ -610,6 +697,7 @@ class EnhancedFuzzyEvaluator:
                         font_prop = FontProperties(fname=path)
                         plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'SimSun']
                         logging.debug(f"使用Windows字体: {path}")
+                        config_success = True
                         break
 
             elif system_name == 'Darwin':  # macOS
@@ -625,6 +713,7 @@ class EnhancedFuzzyEvaluator:
                         font_prop = FontProperties(fname=path)
                         plt.rcParams['font.sans-serif'] = ['PingFang SC', 'Hiragino Sans GB', 'STHeiti']
                         logging.debug(f"使用macOS字体: {path}")
+                        config_success = True
                         break
 
             else:  # Linux和其他系统
@@ -645,6 +734,7 @@ class EnhancedFuzzyEvaluator:
                             font_prop = FontProperties(fname=font)
                             plt.rcParams['font.sans-serif'] = [font_name]
                             logging.debug(f"使用Linux字体: {font}")
+                            config_success = True
                             break
                     except Exception as e:
                         continue
@@ -658,6 +748,7 @@ class EnhancedFuzzyEvaluator:
                         # 尝试创建字体属性
                         font_prop = FontProperties(family=font_name)
                         logging.debug(f"尝试使用字体名称: {font_name}")
+                        config_success = True
                         break
                     except:
                         continue
@@ -667,18 +758,19 @@ class EnhancedFuzzyEvaluator:
                 plt.rcParams['font.sans-serif'] = ['DejaVu Sans'] + plt.rcParams['font.sans-serif']
                 logging.warning("未找到合适的中文字体，使用系统默认字体，中文显示可能不正确")
                 font_prop = FontProperties()
+                config_success = False
 
             # 正确显示负号
             plt.rcParams['axes.unicode_minus'] = False
 
-            return font_prop
+            return font_prop, config_success
 
         except Exception as e:
             # 记录详细的错误信息以便调试
             logging.error(f"配置中文字体出错: {str(e)}", exc_info=True)
             plt.rcParams['font.sans-serif'] = ['DejaVu Sans'] + plt.rcParams['font.sans-serif']
             plt.rcParams['axes.unicode_minus'] = False
-            return FontProperties()
+            return FontProperties(), False
 
     def visualize_membership_functions(self,
                                        use_dynamic: bool = True,
@@ -736,6 +828,33 @@ class EnhancedFuzzyEvaluator:
         else:
             plt.show()
 
+    def safe_bar_annotation(ax, bars, precision=4):
+        """
+        安全地为条形图添加数值标签，避免非有限值导致的渲染问题
+
+        Args:
+            ax: Matplotlib轴对象
+            bars: 条形图对象集合
+            precision: 数值精度
+        """
+        for bar in bars:
+            height = bar.get_height()
+            # 检查高度是否为有限值
+            if np.isfinite(height) and height != 0:
+                # 计算文本位置，确保不会超出图表边界
+                text_y = height * 1.01 if height > 0 else height * 0.99
+
+                # 添加文本标签
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2.,
+                    text_y,
+                    f'{height:.{precision}f}',
+                    ha='center',
+                    va='bottom' if height >= 0 else 'top',
+                    fontsize=9
+                )
+
+    @visualization_error_handler
     def visualize_sensitivity_analysis(self,
                                        sensitivity_results: Optional[Dict[str, Any]] = None,
                                        top_n: int = 5,
@@ -767,84 +886,139 @@ class EnhancedFuzzyEvaluator:
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
-        # 1. 绘制敏感性指标条形图
-        plt.figure(figsize=(12, 6))
+        try:
+            # 1. 绘制敏感性指标条形图
+            plt.figure(figsize=(12, 6))
 
-        # 提取前top_n个因素数据
-        top_factors = ranked_factors[:min(top_n, len(ranked_factors))]
-        top_indices = [sensitivity_indices[f] for f in top_factors]
+            # 提取前top_n个因素数据
+            top_factors = ranked_factors[:min(top_n, len(ranked_factors))]
+            top_indices = [sensitivity_indices[f] for f in top_factors]
 
-        # 为正负值设置不同颜色
-        colors = ['#3498db' if v >= 0 else '#e74c3c' for v in top_indices]
+            # 为正负值设置不同颜色
+            colors = ['#3498db' if v >= 0 else '#e74c3c' for v in top_indices]
 
-        bars = plt.bar(top_factors, top_indices, color=colors)
+            # 绘制条形图
+            bars = plt.bar(top_factors, top_indices, color=colors)
 
-        # 添加数值标签
-        for bar, value in zip(bars, top_indices):
-            height = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width() / 2.,
-                     0.01 if height < 0 else height + 0.01,
-                     f'{value:.4f}',
-                     ha='center', va='bottom' if height >= 0 else 'top',
-                     fontsize=9)
+            # 添加数值标签
+            for bar, value in zip(bars, top_indices):
+                if not np.isfinite(value):
+                    continue
 
-        plt.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        plt.axhline(y=sensitivity_results["mean_sensitivity"], color='green',
-                    linestyle='--', alpha=0.7,
-                    label=f'平均敏感性: {sensitivity_results["mean_sensitivity"]:.4f}')
+                height = bar.get_height()
+                plt.text(bar.get_x() + bar.get_width() / 2.,
+                         0.01 if height < 0 else height + 0.01,
+                         f'{value:.4f}',
+                         ha='center', va='bottom' if height >= 0 else 'top',
+                         fontsize=9)
 
-        # 使用中文字体
-        plt.title("风险因素敏感性分析", fontproperties=font_prop, fontsize=14)
-        plt.xlabel("风险因素", fontproperties=font_prop, fontsize=12)
-        plt.ylabel("敏感性指标", fontproperties=font_prop, fontsize=12)
-        plt.xticks(rotation=45, ha='right')
-        plt.grid(True, alpha=0.3)
-        plt.legend(prop=font_prop)
-        plt.tight_layout()
+            # 添加水平参考线
+            plt.axhline(y=0, color='black', linestyle='-', alpha=0.3)
 
-        if output_dir:
-            plt.savefig(os.path.join(output_dir, "sensitivity_indices.png"), dpi=300, bbox_inches='tight')
+            # 添加平均敏感性线 - 确保有效性并添加标签
+            mean_sensitivity = sensitivity_results.get("mean_sensitivity", 0)
+            if np.isfinite(mean_sensitivity):
+                # 保存返回的Line2D对象以确保图例能够找到它
+                avg_line = plt.axhline(y=mean_sensitivity, color='green',
+                                       linestyle='--', alpha=0.7,
+                                       label='平均敏感性')
+
+                # 确保至少有一个带标签的对象用于图例
+                if avg_line is not None:
+                    plt.legend(prop=font_prop)
+
+            # 使用中文字体
+            plt.title("风险因素敏感性分析", fontproperties=font_prop, fontsize=14)
+            plt.xlabel("风险因素", fontproperties=font_prop, fontsize=12)
+            plt.ylabel("敏感性指标", fontproperties=font_prop, fontsize=12)
+            plt.xticks(rotation=45, ha='right')
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+
+            if output_dir:
+                plt.savefig(os.path.join(output_dir, "sensitivity_indices.png"), dpi=300, bbox_inches='tight')
+                plt.close()
+            else:
+                plt.show()
+        except Exception as e:
+            logging.error(f"绘制敏感性指标图出错: {str(e)}")
             plt.close()
-        else:
-            plt.show()
 
         # 2. 绘制敏感性曲线图
-        plt.figure(figsize=(12, 6))
+        try:
+            plt.figure(figsize=(12, 6))
 
-        for factor in top_factors:
-            curve = variation_curves[factor]
-            plt.plot([v * 100 for v in curve["variations"]], curve["risk_indices"],
-                     marker='o', linewidth=2, label=factor)
+            # 跟踪是否至少有一个有效曲线
+            has_valid_curves = False
 
-        plt.axvline(x=0, color='black', linestyle='-', alpha=0.3)
+            for factor in top_factors:
+                if factor not in variation_curves:
+                    logging.warning(f"因素 '{factor}' 在变化曲线数据中不存在，将被跳过")
+                    continue
 
-        # 使用中文字体
-        plt.title("风险因素权重变化敏感性曲线", fontproperties=font_prop, fontsize=14)
-        plt.xlabel("权重变化率 (%)", fontproperties=font_prop, fontsize=12)
-        plt.ylabel("风险指数", fontproperties=font_prop, fontsize=12)
-        plt.grid(True, alpha=0.3)
-        plt.legend(prop=font_prop)
-        plt.tight_layout()
+                curve = variation_curves[factor]
 
-        if output_dir:
-            plt.savefig(os.path.join(output_dir, "sensitivity_curves.png"), dpi=300, bbox_inches='tight')
+                # 数据有效性检查
+                if "variations" not in curve or "risk_indices" not in curve:
+                    logging.warning(f"因素 '{factor}' 的曲线数据结构不完整")
+                    continue
+
+                variations = curve["variations"]
+                risk_indices = curve["risk_indices"]
+
+                if len(variations) != len(risk_indices):
+                    logging.warning(f"因素 '{factor}' 的变化率与风险指数数据长度不匹配")
+                    continue
+
+                # 确保数据为有限值
+                valid_data = [(v, r) for v, r in zip(variations, risk_indices)
+                              if np.isfinite(v) and np.isfinite(r)]
+
+                if not valid_data:
+                    logging.warning(f"因素 '{factor}' 没有有效的数据点")
+                    continue
+
+                v_values, r_values = zip(*valid_data)
+
+                # 绘制曲线并明确设置标签
+                plt.plot([v * 100 for v in v_values], r_values,
+                         marker='o', linewidth=2, label=factor)
+
+                has_valid_curves = True
+
+            plt.axvline(x=0, color='black', linestyle='-', alpha=0.3)
+
+            # 使用中文字体
+            plt.title("风险因素权重变化敏感性曲线", fontproperties=font_prop, fontsize=14)
+            plt.xlabel("权重变化率 (%)", fontproperties=font_prop, fontsize=12)
+            plt.ylabel("风险指数", fontproperties=font_prop, fontsize=12)
+            plt.grid(True, alpha=0.3)
+
+            # 仅当有有效曲线时添加图例
+            if has_valid_curves:
+                plt.legend(prop=font_prop)
+
+            plt.tight_layout()
+
+            if output_dir:
+                plt.savefig(os.path.join(output_dir, "sensitivity_curves.png"), dpi=300, bbox_inches='tight')
+                plt.close()
+            else:
+                plt.show()
+        except Exception as e:
+            logging.error(f"绘制敏感性曲线图出错: {str(e)}")
             plt.close()
-        else:
-            plt.show()
 
     def visualize_cross_sensitivity(self,
                                     cross_results: Optional[Dict[str, Any]] = None,
                                     output_dir: Optional[str] = None):
         """
-        可视化交叉敏感性分析结果
+        可视化交叉敏感性分析结果，增强NaN处理能力
 
         参数:
             cross_results: 交叉敏感性分析结果
             output_dir: 输出目录
         """
-        # 获取中文字体配置
-        font_prop, _ = self.configure_chinese_font()
-
         # 获取交叉敏感性分析结果
         if cross_results is None:
             if "latest_cross_sensitivity" in self.evaluation_cache:
@@ -857,34 +1031,43 @@ class EnhancedFuzzyEvaluator:
         variations = [f"{v * 100:.0f}%" for v in cross_results["variations"]]
         factors = cross_results["factors"]
         baseline = cross_results["baseline_risk_index"]
+        has_valid_data = cross_results.get("has_valid_data", True)
 
         # 如果需要保存图片，确保目录存在
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
-        # 绘制热力图
-        plt.figure(figsize=(10, 8))
+        # 生成标题
+        title = f"交叉敏感性分析: {factors[0]} vs {factors[1]}"
 
-        # 创建热力图
-        import seaborn as sns
-        sns.heatmap(risk_matrix, annot=True, fmt=".3f", cmap="viridis",
-                    xticklabels=variations, yticklabels=variations)
+        # 使用增强的热图绘制方法
+        output_path = os.path.join(output_dir, "cross_sensitivity.png") if output_dir else None
 
-        # 使用中文字体
-        plt.title(f"交叉敏感性分析: {factors[0]} vs {factors[1]}",
-                  fontproperties=font_prop, fontsize=14)
-        plt.xlabel(f"{factors[1]} 权重变化率", fontproperties=font_prop, fontsize=12)
-        plt.ylabel(f"{factors[0]} 权重变化率", fontproperties=font_prop, fontsize=12)
-
-        # 添加基准线
-        mid_idx = len(variations) // 2
-        plt.axvline(x=mid_idx, color='red', linestyle='--', alpha=0.7)
-        plt.axhline(y=mid_idx, color='red', linestyle='--', alpha=0.7)
-
-        plt.tight_layout()
-
-        if output_dir:
-            plt.savefig(os.path.join(output_dir, "cross_sensitivity.png"), dpi=300, bbox_inches='tight')
-            plt.close()
+        from visualizer import SensitivityVisualizer
+        sensitivity_visualizer = SensitivityVisualizer()
+        # 如果数据有效，绘制完整热图
+        if has_valid_data:
+            sensitivity_visualizer.plot_heatmap(
+                matrix_data=risk_matrix,
+                row_labels=variations,
+                col_labels=variations,
+                title=title,
+                output_path=output_path,
+                annotate=True
+            )
         else:
-            plt.show()
+            # 数据无效，绘制警告信息
+            logging.warning("无法生成交叉敏感性热图：数据不足")
+
+            # 创建简单的消息图表
+            plt.figure(figsize=(10, 8))
+            plt.text(0.5, 0.5,
+                     "无法生成交叉敏感性热图\n数据质量不足以进行有效分析",
+                     ha='center', va='center',
+                     fontproperties=self.font_properties,
+                     fontsize=14)
+            plt.tight_layout()
+
+            if output_path:
+                plt.savefig(output_path, dpi=300, bbox_inches='tight')
+                plt.close()

@@ -9,7 +9,6 @@ from matplotlib.figure import Figure
 from matplotlib.font_manager import FontProperties
 from matplotlib.patches import Patch
 
-
 class Visualizer:
     """结果可视化模块"""
     @staticmethod
@@ -158,48 +157,108 @@ class SensitivityVisualizer:
                      col_labels: List[str],
                      title: str = "Sensitivity Heatmap",
                      output_path: Optional[str] = None,
-                     annotate: bool = True) -> Figure:
-        """绘制热力图展示敏感度分布
+                     annotate: bool = True) -> bool:
+        """
+        绘制热图并处理NaN值异常情况
 
         Args:
             matrix_data (np.ndarray): 矩阵数据
             row_labels (List[str]): 行标签
             col_labels (List[str]): 列标签
             title (str): 图表标题
-            output_path (str, optional): 输出文档路径
+            output_path (Optional[str]): 输出文件路径
             annotate (bool): 是否在单元格中显示数值
 
         Returns:
-            Figure: 生成的图表对象
+            bool: 是否成功生成图表
         """
-        # 创建图表
-        fig, ax = plt.subplots(figsize=self.default_figsize)
+        # 数据验证和预处理
+        if not isinstance(matrix_data, np.ndarray):
+            matrix_data = np.array(matrix_data, dtype=float)
 
-        # 绘制热力图
-        sns.heatmap(
-            matrix_data,
-            annot=annotate,
-            fmt='.3f' if annotate else '',
-            cmap='YlOrRd',
-            linewidths=.5,
-            ax=ax,
-            xticklabels=col_labels,
-            yticklabels=row_labels,
-            cbar_kws={'label': 'Sensitivity Value'}
-        )
+        # 检查全NaN情况
+        if np.all(np.isnan(matrix_data)):
+            logging.warning(f"可视化错误: 矩阵仅包含NaN值，无法生成有效热图 - {title}")
 
-        # 设置标题
-        ax.set_title(title, fontproperties=self.font_properties, fontsize=14, pad=20)
+            # 创建占位图表
+            fig, ax = plt.subplots(figsize=(10, 8))
+            ax.text(0.5, 0.5, "数据不足，无法生成热图",
+                    ha='center', va='center', fontsize=14,
+                    fontproperties=self.font_properties, transform=ax.transAxes)
+
+            # 设置基本标题和标签
+            ax.set_title(title, fontproperties=self.font_properties, fontsize=14)
+            plt.tight_layout()
+
+            # 保存或显示
+            if output_path:
+                plt.savefig(output_path, dpi=300, bbox_inches='tight')
+                plt.close(fig)
+            else:
+                plt.show()
+            return False
+
+        # 处理部分NaN数据
+        has_nan = np.any(np.isnan(matrix_data))
+        if has_nan:
+            nan_count = np.sum(np.isnan(matrix_data))
+            logging.info(f"矩阵包含 {nan_count} 个NaN值，共 {matrix_data.size} 个元素")
+
+            # 创建掩码数组用于可视化
+            masked_data = np.ma.masked_invalid(matrix_data)
+
+            # 创建图表
+            fig, ax = plt.subplots(figsize=(10, 8))
+            cmap = plt.cm.YlOrRd
+            cmap.set_bad('lightgray')  # 设置NaN值的颜色
+
+            # 绘制热图
+            heatmap = sns.heatmap(
+                masked_data,
+                annot=annotate,
+                fmt='.3f' if annotate else '',
+                cmap=cmap,
+                linewidths=.5,
+                ax=ax,
+                xticklabels=col_labels,
+                yticklabels=row_labels,
+                cbar_kws={'label': '敏感度值'}
+            )
+        else:
+            # 标准可视化（完整数据）
+            fig, ax = plt.subplots(figsize=(10, 8))
+
+            # 绘制热图
+            heatmap = sns.heatmap(
+                matrix_data,
+                annot=annotate,
+                fmt='.3f' if annotate else '',
+                cmap='YlOrRd',
+                linewidths=.5,
+                ax=ax,
+                xticklabels=col_labels,
+                yticklabels=row_labels,
+                cbar_kws={'label': '敏感度值'}
+            )
+
+        # 设置标题和标签
+        ax.set_title(title, fontproperties=self.font_properties, fontsize=14)
+
+        # 设置刻度标签字体
+        plt.xticks(fontproperties=self.font_properties)
+        plt.yticks(fontproperties=self.font_properties)
 
         # 调整布局
         plt.tight_layout()
 
-        # 保存图表
+        # 处理输出
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            plt.close()
-
-        return fig
+            plt.close(fig)
+            return True
+        else:
+            plt.show()
+            return True
 
     def plot_membership_sensitivity(self,
                                    sensitivity_results: Dict[str, Dict[str, float]],

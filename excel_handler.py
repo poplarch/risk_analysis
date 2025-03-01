@@ -85,7 +85,7 @@ class ExcelExporter:
                                      sheet_name: str,
                                      criteria: List[str]) -> None:
         """
-        比较并高亮显示原始和修正矩阵的差异
+        比较并高亮显示原始和修正矩阵的差异，采用上下布局提高可读性
 
         Args:
             original_matrix (np.ndarray): 原始判断矩阵
@@ -96,66 +96,77 @@ class ExcelExporter:
         """
         n = len(original_matrix)
 
-        # 创建原始矩阵DataFrame
-        df1 = pd.DataFrame(np.round(original_matrix, 4), columns=criteria, index=criteria)
-        df1.to_excel(writer, sheet_name=sheet_name, startrow=1, startcol=0)
-
-        # 确定修正矩阵的起始列
-        offset = n + 3
-
-        # 创建修正矩阵DataFrame
-        df2 = pd.DataFrame(np.round(corrected_matrix, 4), columns=criteria, index=criteria)
-        df2.to_excel(writer, sheet_name=sheet_name, startrow=1, startcol=offset)
-
-        # 获取工作表
-        ws = writer.sheets[sheet_name]
+        # 创建工作表（如果不存在）
+        if sheet_name not in writer.sheets:
+            ws = writer.book.create_sheet(sheet_name)
+        else:
+            ws = writer.sheets[sheet_name]
 
         # 添加标题
         ws["A1"] = "原始判断矩阵"
         ws["A1"].font = self.subheader_font
         ws["A1"].fill = self.subheader_fill
 
-        # 获取修正矩阵标题单元格位置
-        title_cell = f"{get_column_letter(offset + 1)}1"
+        # 创建原始矩阵DataFrame
+        df1 = pd.DataFrame(np.round(original_matrix, 4), columns=criteria, index=criteria)
+
+        # 使用pandas ExcelWriter的API直接写入，避免openpyxl的sheet访问问题
+        df1.to_excel(writer, sheet_name=sheet_name, startrow=1, startcol=0)
+
+        # 计算修正矩阵的起始行（原始矩阵后加间隔）
+        offset_row = n + 7
+
+        # 写入修正矩阵标题
+        title_cell = f"A{offset_row}"
         ws[title_cell] = "修正矩阵"
         ws[title_cell].font = self.subheader_font
         ws[title_cell].fill = self.subheader_fill
 
-        # 高亮显示修正的单元格
-        for i in range(n):
-            for j in range(n):
-                if abs(original_matrix[i, j] - corrected_matrix[i, j]) > 1e-4:
-                    # 原始矩阵中的单元格
-                    cell1 = f"{get_column_letter(j + 2)}{i + 3}"
-                    ws[cell1].fill = self.modified_fill
+        # 创建修正矩阵DataFrame
+        df2 = pd.DataFrame(np.round(corrected_matrix, 4), columns=criteria, index=criteria)
+        df2.to_excel(writer, sheet_name=sheet_name, startrow=offset_row, startcol=0)
 
-                    # 修正矩阵中的单元格
-                    cell2 = f"{get_column_letter(offset + j + 2)}{i + 3}"
-                    ws[cell2].fill = self.modified_fill
-
-        # 添加一致性比率信息
+        # 进行一致性分析
         from ahp_processor import ConsistencyChecker
-
         checker = ConsistencyChecker()
         original_cr = checker.check_consistency(original_matrix).consistency_ratio
         corrected_cr = checker.check_consistency(corrected_matrix).consistency_ratio
+
+        # 高亮显示修正的单元格
+        try:
+            for i in range(n):
+                for j in range(n):
+                    if abs(original_matrix[i, j] - corrected_matrix[i, j]) > 1e-4:
+                        # 原始矩阵中的单元格
+                        cell1 = f"{get_column_letter(j + 2)}{i + 3}"
+                        ws[cell1].fill = self.modified_fill
+
+                        # 修正矩阵中的单元格
+                        cell2 = f"{get_column_letter(j + 2)}{i + offset_row + 2}"
+                        ws[cell2].fill = self.modified_fill
+        except Exception as e:
+            # 记录错误但继续执行，确保不会导致整个过程失败
+            logging.warning(f"高亮单元格时出错: {str(e)}")
 
         # 在原始矩阵下方添加CR信息
         cr_row = n + 4
         ws[f"A{cr_row}"] = "一致性比率 (CR)"
         ws[f"B{cr_row}"] = round(original_cr, 4)
 
-        # 在修正矩阵下方添加CR信息
-        ws[f"{get_column_letter(offset + 1)}{cr_row}"] = "一致性比率 (CR)"
-        ws[f"{get_column_letter(offset + 2)}{cr_row}"] = round(corrected_cr, 4)
-
         # 添加一致性状态信息
         status_row = cr_row + 1
         ws[f"A{status_row}"] = "一致性状态"
         ws[f"B{status_row}"] = "一致" if original_cr <= 0.1 else "不一致"
 
-        ws[f"{get_column_letter(offset + 1)}{status_row}"] = "一致性状态"
-        ws[f"{get_column_letter(offset + 2)}{status_row}"] = "一致" if corrected_cr <= 0.1 else "不一致"
+        # 在修正矩阵下方添加CR信息
+        modified_cr_row = offset_row + n + 3
+        ws[f"A{modified_cr_row}"] = "一致性比率 (CR)"
+        ws[f"B{modified_cr_row}"] = round(corrected_cr, 4)
+
+        # 添加修正矩阵一致性状态信息
+        modified_status_row = modified_cr_row + 1
+        ws[f"A{modified_status_row}"] = "一致性状态"
+        ws[f"B{modified_status_row}"] = "一致" if corrected_cr <= 0.1 else "不一致"
 
     def export_ahp_results(self,
                            results: Dict[str, Any],

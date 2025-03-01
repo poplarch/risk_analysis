@@ -1,14 +1,19 @@
 # -*- coding: utf-8 -*-
+import functools
 import logging
+import traceback
 from concurrent.futures import ProcessPoolExecutor
 from typing import List, Dict, Tuple, Optional
 
 import numpy as np
+from matplotlib import pyplot as plt
 
 from visualizer import SensitivityVisualizer
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s", handlers=[logging.StreamHandler()])
+
+
 
 class FuzzyEvaluator:
     """模糊综合评价器，支持动态风险等级、动态隶属度函数和敏感性分析"""
@@ -157,6 +162,52 @@ class FuzzyEvaluator:
             output_path=output_path
         )
 
+    def ensure_finite_data(data_dict, default_value=0.0):
+        """
+        确保数据字典中的所有数值均为有限值
+
+        Args:
+            data_dict: 数据字典
+            default_value: 替换非有限值的默认值
+
+        Returns:
+            Dict: 处理后的数据字典
+        """
+        clean_dict = {}
+
+        for key, value in data_dict.items():
+            if isinstance(value, dict):
+                clean_dict[key] = ensure_finite_data(value, default_value)
+            elif isinstance(value, (list, tuple, np.ndarray)):
+                if isinstance(value, np.ndarray):
+                    # 处理NumPy数组
+                    clean_array = value.copy()
+                    mask = ~np.isfinite(clean_array)
+                    if mask.any():
+                        logging.warning(f"键 '{key}' 对应的数组包含 {mask.sum()} 个非有限值")
+                        clean_array[mask] = default_value
+                    clean_dict[key] = clean_array
+                else:
+                    # 处理列表或元组
+                    clean_list = []
+                    for item in value:
+                        if np.isfinite(item) if isinstance(item, (int, float)) else True:
+                            clean_list.append(item)
+                        else:
+                            logging.warning(f"键 '{key}' 对应的列表包含非有限值")
+                            clean_list.append(default_value)
+                    clean_dict[key] = type(value)(clean_list)  # 保持原始类型
+            elif isinstance(value, (int, float)):
+                if np.isfinite(value):
+                    clean_dict[key] = value
+                else:
+                    logging.warning(f"键 '{key}' 对应的值 {value} 是非有限值，将被替换为 {default_value}")
+                    clean_dict[key] = default_value
+            else:
+                clean_dict[key] = value
+
+        return clean_dict
+
     def perform_fuzzy_evaluation_with_sensitivity(
             self, fuzzy_global_weights: Dict[str, float],
             fuzzy_excel_path: str,
@@ -248,6 +299,8 @@ class FuzzyEvaluator:
                     'sensitivity_matrix': sensitivity_matrix
                 }
 
+            # 在处理敏感性分析数据前进行清洗
+            sensitivity_results = ensure_finite_data(sensitivity_results)
             return fuzzy_result, sensitivity_results
 
         except Exception as e:

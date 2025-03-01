@@ -507,7 +507,9 @@ def visualize_results(
 
     try:
         # 获取中文字体配置
-        font_prop, _ = EnhancedFuzzyEvaluator.configure_chinese_font()
+        font_prop, font_config_success = EnhancedFuzzyEvaluator.configure_chinese_font()
+        if not font_config_success:
+            logging.warning("中文本体配置可能不完整，可视化效果可能不理想")
 
         # 创建可视化目录
         viz_dir = os.path.join(output_dir, "visualizations")

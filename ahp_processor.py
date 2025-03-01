@@ -548,8 +548,13 @@ class MatrixCorrector:
             else:  # iterative
                 result = self.iterative_adjustment(matrix, max_iterations)
 
-            return result
+            # 确保修正后的CR值是否小于原始CR值的某个百分比，才认为是有效修正
+            corrected_matrix, is_consistent, final_CR, _ = result
 
+            # 判断是否真正进行了修正（通过比较矩阵元素是否变化）
+            is_actually_adjusted = not np.allclose(matrix, corrected_matrix, rtol=1e-5, atol=1e-8)
+
+            return corrected_matrix, is_consistent, final_CR, is_actually_adjusted
         except Exception as e:
             self.logger.error(f"修正矩阵时出错 (方法: {method}): {str(e)}")
             raise
@@ -773,9 +778,11 @@ class AHPProcessor:
                 weight_method=self.config.get('weight_method', 'eigenvector')
             )
 
-            self.logger.info(f"成功处理层级 '{level}'，共 {len(matrices)} 个专家判断，"
-                             f"{len(result['corrected_matrices'])} 个矩阵已修正")
+            adjusted_matrices_count = sum(1 for corr in result["correction_results"] if corr.adjusted)
 
+            self.logger.info(f"成功处理层级 '{level}'，共 {len(matrices)} 个专家判断，"
+                             f"{adjusted_matrices_count} 个矩阵被修正 "
+                             f"({sum(1 for r in result['correction_results'] if r.success)} 个达到一致性标准)")
             return result
 
         except Exception as e:
@@ -828,11 +835,19 @@ class AHPProcessor:
             # 检查原始矩阵一致性
             original_CR = self.consistency_checker.check_consistency(matrix).consistency_ratio
 
+            # 矩阵是否需要修正
+            needs_correction = original_CR > 0.1
+
             # 修正矩阵
             try:
-                corrected_matrix, is_success, final_CR, is_adjusted = self.matrix_corrector.correct_matrix(
-                    matrix, method=correction_method
-                )
+
+                if needs_correction:
+                    corrected_matrix, is_success, final_CR, is_adjusted = self.matrix_corrector.correct_matrix(
+                        matrix, method=correction_method
+                    )
+                else:
+                    # 如果原始矩阵已经一致，无需修正
+                    corrected_matrix, is_success, final_CR, is_adjusted = matrix, True, original_CR, False
             except Exception as e:
                 self.logger.error(f"修正专家 {i + 1} 的判断矩阵时出错: {str(e)}")
                 # 如果修正失败，使用原始矩阵
