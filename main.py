@@ -506,11 +506,6 @@ def visualize_results(
         return
 
     try:
-        # 获取中文字体配置
-        font_prop, font_config_success = EnhancedFuzzyEvaluator.configure_chinese_font()
-        if not font_config_success:
-            logging.warning("中文本体配置可能不完整，可视化效果可能不理想")
-
         # 创建可视化目录
         viz_dir = os.path.join(output_dir, "visualizations")
         os.makedirs(viz_dir, exist_ok=True)
@@ -520,10 +515,12 @@ def visualize_results(
             dynamic_enabled=config.get("fuzzy_settings", {}).get("use_dynamic_membership", True)
         )
 
+        # 获取中文字体属性 - 直接使用实例中的字体属性
+        font_prop = fuzzy_evaluator.font_properties
+
         # 1. 可视化隶属度函数
         if "factor_membership" in evaluation_results:
             # 获取第一个因素的评分样本用于演示
-            first_factor = list(evaluation_results["factor_membership"].keys())[0]
             sample_scores = np.array([0.1, 0.3, 0.5, 0.7, 0.9])  # 示例评分点
 
             fuzzy_evaluator.visualize_membership_functions(
@@ -574,7 +571,7 @@ def visualize_results(
             logging.info("已生成交叉敏感性分析可视化")
 
     except Exception as e:
-        logging.error(f"生成可视化图表出错: {str(e)}")
+        logging.error(f"生成可视化图表出错: {str(e)}", exc_info=True)
         print(f"生成可视化图表出错: {str(e)}")
 
 def export_evaluation_results(

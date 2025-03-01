@@ -85,8 +85,7 @@ class EnhancedFuzzyEvaluator:
         self.logger = logging.getLogger(__name__)
 
         # 初始化字体属性
-        font_prop, _ = self.configure_chinese_font()
-        self.font_properties = font_prop
+        self.font_properties = self._get_chinese_font()
 
     def _create_membership_functions(self, params: Dict[str, Tuple[float, float, float, float]]) -> Dict[str, Callable]:
         """
@@ -667,6 +666,97 @@ class EnhancedFuzzyEvaluator:
 
         return available_fonts
 
+    # 添加新的字体获取方法
+    def _get_chinese_font(self):
+        """
+        获取适用于当前系统的中文本体
+
+        Returns:
+            FontProperties: 中文本体属性对象
+        """
+        import platform as sys_platform
+        import os
+        from matplotlib.font_manager import FontProperties
+
+        system_name = sys_platform.system()
+
+        try:
+            # 基于操作系统类型实施不同的字体策略
+            if system_name == 'Windows':
+                # Windows系统使用微软雅黑或黑体
+                font_paths = [
+                    r'C:\Windows\Fonts\msyh.ttc',  # 微软雅黑
+                    r'C:\Windows\Fonts\simhei.ttf',  # 黑体
+                    r'C:\Windows\Fonts\simsun.ttc'  # 宋体
+                ]
+
+                for path in font_paths:
+                    if os.path.exists(path):
+                        font_prop = FontProperties(fname=path)
+                        plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'SimSun']
+                        self.logger.debug(f"使用Windows字体: {path}")
+                        return font_prop
+
+            elif system_name == 'Darwin':  # macOS
+                # macOS系统使用苹方或华文黑体
+                font_paths = [
+                    '/System/Library/Fonts/PingFang.ttc',
+                    '/Library/Fonts/Hiragino Sans GB.ttc',
+                    '/System/Library/Fonts/STHeiti Light.ttc'
+                ]
+
+                for path in font_paths:
+                    if os.path.exists(path):
+                        font_prop = FontProperties(fname=path)
+                        plt.rcParams['font.sans-serif'] = ['PingFang SC', 'Hiragino Sans GB', 'STHeiti']
+                        self.logger.debug(f"使用macOS字体: {path}")
+                        return font_prop
+
+            else:  # Linux和其他系统
+                # 尝试使用常见的中文本体
+                import matplotlib as mpl
+                chinese_fonts = [
+                    'WenQuanYi Micro Hei', 'Droid Sans Fallback', 'Noto Sans CJK SC',
+                    'SimSun', 'SimHei', 'WenQuanYi Zen Hei', 'AR PL UMing CN'
+                ]
+
+                # 检测系统中是否有这些字体
+                available_fonts = mpl.font_manager.findSystemFonts(fontpaths=None)
+                for font in available_fonts:
+                    try:
+                        temp_prop = FontProperties(fname=font)
+                        font_name = temp_prop.get_name()
+                        if any(cf.lower() in font_name.lower() for cf in chinese_fonts):
+                            plt.rcParams['font.sans-serif'] = [font_name]
+                            self.logger.debug(f"使用Linux字体: {font}")
+                            return temp_prop
+                    except Exception:
+                        continue
+
+            # 如果未找到合适字体，尝试通过字体名称设置
+            for font_name in ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei', 'Noto Sans CJK SC']:
+                try:
+                    plt.rcParams['font.sans-serif'] = [font_name] + plt.rcParams['font.sans-serif']
+                    font_prop = FontProperties(family=font_name)
+                    self.logger.debug(f"尝试使用字体名称: {font_name}")
+                    return font_prop
+                except Exception:
+                    continue
+
+            # 最后的回退选项
+            plt.rcParams['font.sans-serif'] = ['DejaVu Sans'] + plt.rcParams['font.sans-serif']
+            self.logger.warning("未找到合适的中文本体，使用系统默认字体，中文显示可能不正确")
+
+        except Exception as e:
+            # 记录详细的错误信息以便调试
+            self.logger.error(f"配置中文本体出错: {str(e)}", exc_info=True)
+
+        # 正确显示负号
+        plt.rcParams['axes.unicode_minus'] = False
+
+        # 返回默认字体
+        return FontProperties()
+
     @staticmethod
     def configure_chinese_font():
         """
@@ -758,19 +848,18 @@ class EnhancedFuzzyEvaluator:
                 plt.rcParams['font.sans-serif'] = ['DejaVu Sans'] + plt.rcParams['font.sans-serif']
                 logging.warning("未找到合适的中文字体，使用系统默认字体，中文显示可能不正确")
                 font_prop = FontProperties()
-                config_success = False
 
             # 正确显示负号
             plt.rcParams['axes.unicode_minus'] = False
 
-            return font_prop, config_success
+            return font_prop
 
         except Exception as e:
             # 记录详细的错误信息以便调试
             logging.error(f"配置中文字体出错: {str(e)}", exc_info=True)
             plt.rcParams['font.sans-serif'] = ['DejaVu Sans'] + plt.rcParams['font.sans-serif']
             plt.rcParams['axes.unicode_minus'] = False
-            return FontProperties(), False
+            return FontProperties()
 
     def visualize_membership_functions(self,
                                        use_dynamic: bool = True,
@@ -784,8 +873,8 @@ class EnhancedFuzzyEvaluator:
             scores: 用于生成动态隶属度函数的评分数据
             output_path: 输出文件路径
         """
-        # 获取中文字体配置
-        font_prop, _ = self.configure_chinese_font()
+        # 获取中文字体配置 - 直接使用实例中的字体属性
+        font_prop = self.font_properties
 
         # 确定使用哪种隶属度函数
         if use_dynamic:
@@ -868,7 +957,7 @@ class EnhancedFuzzyEvaluator:
             output_dir: 输出目录
         """
         # 获取中文字体配置
-        font_prop, _ = self.configure_chinese_font()
+        font_prop = self.configure_chinese_font()
 
         # 获取敏感性分析结果
         if sensitivity_results is None:

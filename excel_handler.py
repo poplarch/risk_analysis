@@ -359,8 +359,9 @@ class ExcelExporter:
             writer (pd.ExcelWriter): Excel写入器
             weights (Dict[str, float]): 权重字典
         """
-        # 配置中文字体
-        font_prop = EnhancedFuzzyEvaluator.configure_chinese_font()
+        # 初始化评价器以获取字体配置
+        fuzzy_evaluator = EnhancedFuzzyEvaluator()
+        font_prop = fuzzy_evaluator.font_properties
 
         # 创建工作表
         workbook = writer.book
@@ -458,8 +459,9 @@ class ExcelExporter:
             writer (pd.ExcelWriter): Excel写入器
             fuzzy_results (Dict[str, Any]): 模糊评价结果
         """
-        # 配置中文字体
-        font_prop = EnhancedFuzzyEvaluator.configure_chinese_font()
+        # 初始化评价器以获取字体配置
+        fuzzy_evaluator = EnhancedFuzzyEvaluator()
+        font_prop = fuzzy_evaluator.font_properties
 
         # 创建工作表
         workbook = writer.book
@@ -507,7 +509,7 @@ class ExcelExporter:
                 # 使用安全的临时文件方法
                 temp_dir = os.path.join(os.getcwd(), 'temp')
                 os.makedirs(temp_dir, exist_ok=True)
-                temp_path = os.path.join(temp_dir, f'weights_visualization_{id(fig)}.png')
+                temp_path = os.path.join(temp_dir, f'fuzzy_visualization_{id(fig)}.png')
                 try:
                     # 保存图表到临时文档
                     plt.savefig(temp_path, dpi=300, bbox_inches='tight')
@@ -524,7 +526,7 @@ class ExcelExporter:
                         worksheet.add_image(img, 'A1')
                     else:
                         logging.error(f"文档未成功创建: {temp_path}")
-                        worksheet.cell(row=1, column=1, value="权重可视化图表生成失败")
+                        worksheet.cell(row=1, column=1, value="评价可视化图表生成失败")
 
                 except Exception as save_error:
                     logging.error(f"保存图表时出错: {save_error}")
