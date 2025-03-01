@@ -23,6 +23,8 @@ from tqdm import tqdm
 from ahp_processor import AHPProcessor
 from enhanced_fuzzy_evaluator import EnhancedFuzzyEvaluator
 from excel_handler import ExcelDataHandler, ExcelExporter
+from risk_sensitivity_analyzer import RiskSensitivityAnalyzer
+from risk_visualization import RiskVisualization
 
 
 # 配置日志
@@ -407,7 +409,7 @@ def perform_enhanced_fuzzy_evaluation(
         global_weights: Dict[str, float],
         excel_handler: ExcelDataHandler,
         fuzzy_config: Dict
-) -> Dict[str, Any]:
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
     """
     执行增强型模糊综合评价
 
@@ -418,6 +420,7 @@ def perform_enhanced_fuzzy_evaluation(
 
     Returns:
         评价结果字典
+        参与模糊综合评价的二级风险因素全局权重字典
     """
     try:
         # 初始化增强型模糊评价器
@@ -481,12 +484,76 @@ def perform_enhanced_fuzzy_evaluation(
             if cross_results:
                 evaluation_results["cross_sensitivity"] = cross_results
 
-        return evaluation_results
+        return evaluation_results, significant_factors
 
     except Exception as e:
         logging.error(f"模糊综合评价出错: {str(e)}")
         raise
 
+
+def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[str, Any], fuzzy_result: np.array) -> None:
+    # 创建敏感性分析器
+    analyzer = RiskSensitivityAnalyzer(global_weights, fuzzy_result)
+
+    # 执行单因素敏感性分析
+    single_factor_results = analyzer.single_factor_sensitivity()
+
+    # 执行交叉敏感性分析
+    cross_factor_results = analyzer.cross_factor_sensitivity(
+        factors=["监管风险C6.2", "政策风险C6.1"]
+    )
+
+    # 执行蒙特卡洛敏感性分析
+    monte_carlo_results = analyzer.monte_carlo_sensitivity(num_simulations=500)
+
+    # 计算风险阈值影响
+    threshold_impact = analyzer.calculate_threshold_impact()
+
+    # 创建可视化器
+    visualizer = RiskVisualization(output_dir="output/visualizations")
+
+    # 绘制一级风险因素局部权重饼状图
+    # 首先，提取一级风险因素的权重
+    visualizer.plot_criteria_weights_pie(criteria_weights)
+
+    # 绘制二级风险因素全局权重饼状图
+    visualizer.plot_global_weights_pie(global_weights)
+
+    # 绘制模糊综合评价隶属度柱状图
+    visualizer.plot_fuzzy_membership_bar(fuzzy_result)
+
+    # 绘制敏感性雷达图
+    visualizer.plot_sensitivity_radar(single_factor_results["sensitivity_indices"])
+
+    # 绘制敏感性Tornado图
+    visualizer.plot_sensitivity_tornado(single_factor_results["sensitivity_indices"])
+
+    # 绘制风险影响热力图
+    visualizer.plot_risk_heatmap(
+        cross_factor_results["risk_matrix"],
+        cross_factor_results["factors"],
+        cross_factor_results["variations"]
+    )
+
+    # 绘制风险等级变化Sankey图
+    visualizer.plot_risk_level_sankey(
+        threshold_impact["risk_distribution"],
+        threshold_impact["baseline_category"]
+    )
+
+    # 绘制蒙特卡洛模拟散点图
+    visualizer.plot_monte_carlo_scatter(
+        monte_carlo_results["risk_indices"],
+        monte_carlo_results["simulation_weights"]
+    )
+
+    # 绘制风险分布图
+    visualizer.plot_risk_distribution(
+        monte_carlo_results["risk_indices"],
+        monte_carlo_results["risk_stats"]
+    )
+
+    print("所有图表已生成!")
 
 def visualize_results(
         evaluation_results: Dict[str, Any],
@@ -805,7 +872,7 @@ def main():
             "visualization_enabled": visualization_enabled,
             "dpi": dpi
         }
-        evaluation_results = perform_enhanced_fuzzy_evaluation(
+        evaluation_results, significant_factors = perform_enhanced_fuzzy_evaluation(
             global_weights,
             excel_handler,
             fuzzy_config
@@ -815,7 +882,7 @@ def main():
         print_evaluation_summary(evaluation_results)
 
         # 可视化结果
-        visualize_results(evaluation_results, config, output_dir)
+        visualize_results_(criteria_weights, significant_factors, np.array(evaluation_results["integrated_result"]))
 
         # 导出评价结果
         export_evaluation_results(evaluation_results, output_dir)
