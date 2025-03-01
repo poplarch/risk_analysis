@@ -70,8 +70,8 @@ class ExcelExporter:
                         cell_length = len(str(cell.value))
                         max_length = max(max_length, cell_length)
 
-                # 设置列宽（最大内容长度 + 4个字符的边距）
-                adjusted_width = max(max_length + 4, 10)  # 最小宽度为10
+                # 设置列宽（最大内容长度 + 8个字符的边距）
+                adjusted_width = max(max_length + 8, 10)  # 最小宽度为10
                 worksheet.column_dimensions[column_letter].width = adjusted_width
 
                 # 设置单元格对齐方式
@@ -245,9 +245,7 @@ class ExcelExporter:
 
                 # 调整所有工作表的格式
                 self.adjust_all_sheets(writer)
-
             self.logger.info(f"已导出AHP分析结果到: {output_path}")
-
         except Exception as e:
             self.logger.error(f"导出AHP结果时出错: {str(e)}")
             raise
@@ -337,9 +335,7 @@ class ExcelExporter:
 
                 # 调整所有工作表的格式
                 self.adjust_all_sheets(writer)
-
             self.logger.info(f"已导出模糊评价结果到: {output_path}")
-
         except Exception as e:
             self.logger.error(f"导出模糊评价结果时出错: {str(e)}")
             raise
@@ -352,7 +348,6 @@ class ExcelExporter:
             writer (pd.ExcelWriter): Excel写入器
             weights (Dict[str, float]): 权重字典
         """
-
         # 配置中文字体
         font_prop = EnhancedFuzzyEvaluator.configure_chinese_font()
 
@@ -401,36 +396,31 @@ class ExcelExporter:
             plt.tight_layout()
 
             # 使用安全的临时文件方法
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                temp_path = tmp.name
-                logging.info(f"创建临时文件: {temp_path}")
-
-                # 先关闭文件，避免在Windows系统上的访问冲突
-                tmp.close()
-
-                # 保存图表到临时文件
+            temp_dir = os.path.join(os.getcwd(), 'temp')
+            os.makedirs(temp_dir, exist_ok=True)
+            temp_path = os.path.join(temp_dir, f'weights_visualization_{id(fig)}.png')
+            try:
+                # 保存图表到临时文档
                 plt.savefig(temp_path, dpi=300, bbox_inches='tight')
-                plt.close(fig)
 
-                # 验证文件是否创建成功
-                file_size = os.path.getsize(temp_path)
-                logging.info(f"临时文件已创建，大小: {file_size} 字节")
+                # 验证文档是否创建成功
+                if os.path.exists(temp_path):
+                    file_size = os.path.getsize(temp_path)
+                    logging.info(f"临时文档已创建: {temp_path}, 大小: {file_size} 字节")
 
-                # 将图表插入到Excel
-                img = Image(temp_path)
-                img.width = 600
-                img.height = 400
-                worksheet.add_image(img, 'A1')
+                    # 将图表插入到Excel
+                    img = Image(temp_path)
+                    img.width = 600
+                    img.height = 400
+                    worksheet.add_image(img, 'A1')
+                else:
+                    logging.error(f"文档未成功创建: {temp_path}")
+                    worksheet.cell(row=1, column=1, value="权重可视化图表生成失败")
 
-                # 清理临时文件
-                try:
-                    os.remove(temp_path)
-                    logging.info(f"临时文件已清理: {temp_path}")
-                except Exception as e:
-                    logging.warning(f"清理临时文件失败: {str(e)}")
-
+            except Exception as save_error:
+                logging.error(f"保存图表时出错: {save_error}")
+                worksheet.cell(row=1, column=1, value=f"图表生成错误: {save_error}")
         except Exception as e:
-            # 记录详细错误并添加错误信息到工作表
             logging.error(f"生成权重可视化时出错: {str(e)}", exc_info=True)
             worksheet.cell(row=1, column=1, value=f"图表生成错误: {str(e)}")
 
@@ -504,29 +494,30 @@ class ExcelExporter:
                 plt.tight_layout(pad=3.0)
 
                 # 使用安全的临时文件方法
-                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                    temp_path = tmp.name
-                    logging.info(f"创建临时文件: {temp_path}")
-
-                    # 先关闭文件
-                    tmp.close()
-
-                    # 保存图表到临时文件
+                temp_dir = os.path.join(os.getcwd(), 'temp')
+                os.makedirs(temp_dir, exist_ok=True)
+                temp_path = os.path.join(temp_dir, f'weights_visualization_{id(fig)}.png')
+                try:
+                    # 保存图表到临时文档
                     plt.savefig(temp_path, dpi=300, bbox_inches='tight')
-                    plt.close(fig)
 
-                    # 将图表插入到Excel
-                    img = Image(temp_path)
-                    img.width = 600
-                    img.height = 400
-                    worksheet.add_image(img, 'A1')
+                    # 验证文档是否创建成功
+                    if os.path.exists(temp_path):
+                        file_size = os.path.getsize(temp_path)
+                        logging.info(f"临时文档已创建: {temp_path}, 大小: {file_size} 字节")
 
-                    # 清理临时文件
-                    try:
-                        os.remove(temp_path)
-                        logging.info(f"临时文件已清理: {temp_path}")
-                    except Exception as e:
-                        logging.warning(f"清理临时文件失败: {str(e)}")
+                        # 将图表插入到Excel
+                        img = Image(temp_path)
+                        img.width = 600
+                        img.height = 400
+                        worksheet.add_image(img, 'A1')
+                    else:
+                        logging.error(f"文档未成功创建: {temp_path}")
+                        worksheet.cell(row=1, column=1, value="权重可视化图表生成失败")
+
+                except Exception as save_error:
+                    logging.error(f"保存图表时出错: {save_error}")
+                    worksheet.cell(row=1, column=1, value=f"图表生成错误: {save_error}")
 
             except Exception as e:
                 logging.error(f"生成模糊评价可视化时出错: {str(e)}", exc_info=True)

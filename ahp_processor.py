@@ -640,7 +640,7 @@ class MatrixCorrector:
         return A_final, final_consistency_result.is_consistent, final_consistency_result.consistency_ratio, True
 
     def iterative_adjustment(self, matrix: np.ndarray,
-                             max_iterations: int = 10) -> Tuple[np.ndarray, bool, float, bool]:
+                             max_iterations: int = 100) -> Tuple[np.ndarray, bool, float, bool]:
         """
         使用迭代修正法修正不一致判断矩阵
 

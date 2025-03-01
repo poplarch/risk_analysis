@@ -17,7 +17,7 @@
   "ahp_settings": {
     "ahp_model_level": ["Goal", "技术风险C1", "业务风险C2", "管理风险C3", "运维风险C4", "供应链风险C5", "合规风险C6"],
     "expert_count": 5,
-    "correction_method": "LLSM",
+    "correction_method": "iterative",
     "aggregation_method": "geometric",
     "weight_method": "eigenvector",
     "expert_weights_enabled": true
