@@ -383,101 +383,198 @@ class EnhancedFuzzyEvaluator:
         self.evaluation_cache["latest"] = result
         
         return result
-    
-    def perform_sensitivity_analysis(self, 
-                                    factor_weights: Dict[str, float],
-                                    expert_scores: Dict[str, np.ndarray],
-                                    use_dynamic: Optional[bool] = None,
-                                    variation_range: float = 0.2,
-                                    steps: int = 10) -> Dict[str, Any]:
+
+    def validate_sensitivity_inputs(factor_weights, expert_scores):
+        """
+        验证敏感性分析的输入数据有效性
+
+        Args:
+            factor_weights (Dict[str, float]): 因素权重
+            expert_scores (Dict[str, np.ndarray]): 专家评分
+
+        Returns:
+            Dict[str, float]: 验证后的因素权重
+        """
+        validated_weights = {}
+
+        # 验证权重值
+        for factor, weight in factor_weights.items():
+            # 检查权重是否为有限值且非负
+            if not np.isfinite(weight) or weight < 0:
+                logging.warning(f"因素 '{factor}' 的权重值无效: {weight}，设置为0")
+                validated_weights[factor] = 0.0
+            else:
+                validated_weights[factor] = weight
+
+        # 确保权重总和为1（如果有非零权重）
+        weight_sum = sum(validated_weights.values())
+        if weight_sum > 0:
+            for factor in validated_weights:
+                validated_weights[factor] /= weight_sum
+
+        # 验证专家评分
+        for factor, scores in expert_scores.items():
+            if factor in validated_weights:
+                # 检查并替换非有限值
+                invalid_indices = ~np.isfinite(scores)
+                if np.any(invalid_indices):
+                    logging.warning(f"因素 '{factor}' 的评分包含 {np.sum(invalid_indices)} 个无效值")
+                    # 使用有效评分的均值替换无效值
+                    valid_scores = scores[~invalid_indices]
+                    if len(valid_scores) > 0:
+                        scores[invalid_indices] = np.mean(valid_scores)
+                    else:
+                        scores[invalid_indices] = 0.5  # 默认中间值
+                    expert_scores[factor] = scores
+
+        return validated_weights
+
+    def normalize_sensitivity_results(self, sensitivity_indices: Dict[str, float]) -> Dict[str, float]:
+        """
+        规范化敏感性指标，确保结果中没有NaN或非有限值
+
+        Args:
+            sensitivity_indices (Dict[str, float]): 原始敏感性指标
+
+        Returns:
+            Dict[str, float]: 规范化后的敏感性指标
+        """
+        # 创建新字典以存储规范化结果
+        normalized_indices = {}
+
+        # 检查并替换非有限值
+        for factor, value in sensitivity_indices.items():
+            if not np.isfinite(value):
+                self.logger.warning(f"因素 '{factor}' 的敏感性指标为非有限值，设为0")
+                normalized_indices[factor] = 0.0
+            else:
+                normalized_indices[factor] = value
+
+        # 检查是否存在有效敏感性指标
+        valid_values = [v for v in normalized_indices.values() if v != 0.0]
+        if not valid_values:
+            self.logger.warning("所有敏感性指标均为0或无效，无法进行有效比较")
+            return normalized_indices
+
+        # 可选：对极端值进行裁剪处理
+        # 计算有效值的四分位数
+        q1 = np.percentile([abs(v) for v in valid_values], 25)
+        q3 = np.percentile([abs(v) for v in valid_values], 75)
+        iqr = q3 - q1
+        upper_bound = q3 + 1.5 * iqr
+
+        # 裁剪极端异常值
+        for factor, value in normalized_indices.items():
+            if abs(value) > upper_bound:
+                self.logger.debug(f"因素 '{factor}' 的敏感性指标 {value} 超出上界 {upper_bound}，将被裁剪")
+                normalized_indices[factor] = upper_bound if value > 0 else -upper_bound
+
+        return normalized_indices
+
+    def perform_sensitivity_analysis(self,
+                                     factor_weights: Dict[str, float],
+                                     expert_scores: Dict[str, np.ndarray],
+                                     use_dynamic: Optional[bool] = None,
+                                     variation_range: float = 0.2,
+                                     steps: int = 10) -> Dict[str, Any]:
         """
         单因素敏感性分析，评估权重变化对风险评估的影响
-        
+
         Args:
             factor_weights (Dict[str, float]): 因素权重
             expert_scores (Dict[str, np.ndarray]): 专家评分
             use_dynamic (Optional[bool]): 是否使用动态隶属度函数
             variation_range (float): 权重变化范围 (±)
             steps (int): 变化步数
-            
+
         Returns:
             Dict[str, Any]: 敏感性分析结果
-                {
-                    "sensitivity_indices": {因素: 敏感性指标},
-                    "variation_curves": {因素: {"variations": [变化率], "risk_indices": [风险指数]}},
-                    "ranked_factors": [按敏感性排序的因素列表],
-                    "baseline_result": 基准评价结果,
-                    "critical_factors": [关键风险因素列表]
-                }
         """
         # 计算基准评价结果
         baseline_result = self.evaluate(expert_scores, factor_weights, use_dynamic)
         baseline_risk_index = baseline_result["risk_index"]
         ordered_factors = baseline_result["ordered_factors"]
-        
+
         # 初始化结果容器
         sensitivity_indices = {}
         variation_curves = {}
-        
+
         # 计算权重变化步长
         step_size = 2 * variation_range / steps
         variations = [-variation_range + i * step_size for i in range(steps + 1)]
-        
+
         # 对每个因素进行敏感性分析
         for factor in ordered_factors:
             risk_indices = []
             original_weight = factor_weights[factor]
-            
+
             # 在变化范围内改变权重
             for variation in variations:
                 # 创建修改后的权重字典
                 modified_weights = copy.deepcopy(factor_weights)
-                
+
                 # 计算新权重 (确保不为负)
                 new_weight = max(0.001, original_weight * (1 + variation))
                 modified_weights[factor] = new_weight
-                
+
                 # 归一化
                 weight_sum = sum(modified_weights.values())
-                modified_weights = {k: v/weight_sum for k, v in modified_weights.items()}
-                
+                modified_weights = {k: v / weight_sum for k, v in modified_weights.items()}
+
                 # 使用修改后的权重重新计算风险评价
                 result = self.evaluate(expert_scores, modified_weights, use_dynamic)
                 risk_indices.append(result["risk_index"])
-            
+
             # 计算敏感性指标 (风险指数变化率与权重变化率之比)
-            # 使用线性回归斜率计算敏感性
-            slope = np.polyfit(variations, risk_indices, 1)[0]
-            sensitivity = slope * original_weight / baseline_risk_index
-            
+            try:
+                # 使用线性回归斜率计算敏感性
+                slope = np.polyfit(variations, risk_indices, 1)[0]
+                # 验证分母是否有效
+                if abs(original_weight) < 1e-6 or abs(baseline_risk_index) < 1e-6:
+                    sensitivity = 0.0
+                    self.logger.warning(f"因素 '{factor}' 的权重或基准风险指数接近零，敏感性设为0")
+                else:
+                    sensitivity = slope * original_weight / baseline_risk_index
+
+                # 验证结果是否有效
+                if not np.isfinite(sensitivity):
+                    sensitivity = 0.0
+                    self.logger.warning(f"因素 '{factor}' 的敏感性计算结果非有限值，设为0")
+            except Exception as e:
+                self.logger.warning(f"计算因素 '{factor}' 的敏感性时出错: {str(e)}")
+                sensitivity = 0.0
+
             # 存储结果
             sensitivity_indices[factor] = sensitivity
             variation_curves[factor] = {
                 "variations": variations,
                 "risk_indices": risk_indices
             }
-        
+
+        # 应用规范化函数处理敏感性指标
+        normalized_indices = self.normalize_sensitivity_results(sensitivity_indices)
+
         # 按敏感性排序因素
-        ranked_factors = sorted(sensitivity_indices.items(), key=lambda x: abs(x[1]), reverse=True)
+        ranked_factors = sorted(normalized_indices.items(), key=lambda x: abs(x[1]), reverse=True)
         ranked_factor_names = [item[0] for item in ranked_factors]
-        
+
         # 识别关键风险因素 (敏感性指标大于平均值的因素)
-        mean_sensitivity = np.mean([abs(s) for s in sensitivity_indices.values()])
+        valid_sensitivities = [abs(s) for s in normalized_indices.values() if np.isfinite(s)]
+        mean_sensitivity = np.mean(valid_sensitivities) if valid_sensitivities else 0.0
         critical_factors = [factor for factor, sens in ranked_factors if abs(sens) > mean_sensitivity]
-        
+
         # 整合结果
         result = {
-            "sensitivity_indices": {f: sensitivity_indices[f] for f in ranked_factor_names},
+            "sensitivity_indices": normalized_indices,
             "variation_curves": variation_curves,
             "ranked_factors": ranked_factor_names,
             "baseline_result": baseline_result,
             "critical_factors": critical_factors,
             "mean_sensitivity": mean_sensitivity
         }
-        
+
         # 缓存结果
         self.evaluation_cache["latest_sensitivity"] = result
-        
         return result
 
     def _calculate_cross_sensitivity_matrix(self,
