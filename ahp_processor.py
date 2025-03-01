@@ -760,7 +760,7 @@ class AHPProcessor:
         """
         try:
             # 构建 Excel 文件路径
-            excel_path = f"{self.excel_prefix}_{level.replace(' ', '')}.xlsx"
+            excel_path = f"{self.excel_prefix}{level.replace(' ', '')}.xlsx"
 
             # 读取专家判断矩阵
             matrices, criteria_names = self._get_excel_handler().read_expert_matrices(excel_path)

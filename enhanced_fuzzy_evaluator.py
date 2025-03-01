@@ -83,63 +83,102 @@ class EnhancedFuzzyEvaluator:
         
         # 创建并返回隶属度函数字典
         return {level: create_trap_mf(*param) for level, param in params.items()}
-    
-    def generate_dynamic_membership_functions(self, expert_scores: np.ndarray) -> Dict[str, Callable]:
+
+    def generate_dynamic_membership_functions(self, expert_scores: np.ndarray) -> Dict[str, callable]:
         """
-        基于专家评分分布特征动态生成隶属度函数
-        
-        Args:
-            expert_scores (np.ndarray): 专家评分数组(归一化后，0-1范围)
-            
-        Returns:
-            Dict[str, Callable]: 动态生成的隶属度函数
+        基于专家评分分布特征动态生成优化的隶属度函数
+
+        参数:
+            expert_scores: 专家评分数组(归一化后，0-1范围)
+
+        返回:
+            动态生成的隶属度函数字典
         """
-        # 计算评分的统计特性
+        # 防止输入数据问题
+        if len(expert_scores) < 4:
+            logging.warning("专家评分样本量过小，使用静态隶属度函数")
+            return self.static_membership_functions
+
+        # 基础统计特征计算
         min_score = np.min(expert_scores)
         max_score = np.max(expert_scores)
         mean_score = np.mean(expert_scores)
-        std_score = np.std(expert_scores)
-        
-        # 防止标准差过小导致的数值问题
-        std_score = max(std_score, 0.05)
-        
-        # 计算分位数，用于更精确的分布刻画
-        q1 = np.percentile(expert_scores, 25)  # 第一四分位数
-        q2 = np.percentile(expert_scores, 50)  # 中位数
-        q3 = np.percentile(expert_scores, 75)  # 第三四分位数
-        
-        # 根据评分分布特征构建梯形隶属度函数参数
-        # 使用分位数和均值标准差结合的方式，使隶属度函数更好地适应数据分布
+        std_score = max(np.std(expert_scores), 0.05)  # 确保标准差不会太小
+
+        # 分位数计算 - 扩展至更多分位点以更好刻画分布
+        percentiles = [10, 25, 50, 75, 90]
+        p_values = [np.percentile(expert_scores, p) for p in percentiles]
+        p10, q1, q2, q3, p90 = p_values
+
+        # 执行分布形态检测
+        skewness = ((mean_score - q2) / std_score) * 3  # 分布偏度估计
+
+        # 基于偏度调整隶属度函数参数计算
+        skew_factor = max(-0.5, min(0.5, skewness * 0.25))  # 控制偏度影响范围
+
+        # 初始化参数集
+        vl_upper = min(q1, p10 + 2 * std_score)
+        l_upper = q2 - skew_factor * (q2 - q1)
+        m_lower = max(q1, q2 - std_score)
+        m_upper = min(q3, q2 + std_score)
+        h_lower = q2 + skew_factor * (q3 - q2)
+        h_upper = max(q3, p90 - 2 * std_score)
+
+        # 动态构建隶属度函数参数（优化版）
         dynamic_params = {
-            "VL": (0, 0, min_score + 0.15*std_score, q1),
-            "L": (min_score + 0.1*std_score, q1, q1 + 0.2*std_score, q2),
-            "M": (q1, q2 - 0.15*std_score, q2 + 0.15*std_score, q3),
-            "H": (q2, q3 - 0.2*std_score, q3, max_score - 0.1*std_score),
-            "VH": (q3, max_score - 0.15*std_score, 1.0, 1.0)
+            "VL": (0, 0, min_score + 0.5 * std_score, vl_upper),
+            "L": (min_score + 0.3 * std_score, q1, q1 + 0.5 * (q2 - q1), l_upper),
+            "M": (m_lower, q2 - 0.2 * std_score, q2 + 0.2 * std_score, m_upper),
+            "H": (h_lower, q3 - 0.5 * (q3 - q2), q3, h_upper),
+            "VH": (max(q3, max_score - 2 * std_score), max_score - 0.5 * std_score, 1.0, 1.0)
         }
-        
+
         # 参数合理性检查与调整
-        for level, (a, b, c, d) in dynamic_params.items():
-            # 确保参数在[0,1]范围内且满足单调递增
+        params_list = [(k, v) for k, v in dynamic_params.items()]
+        for i in range(len(params_list)):
+            level, (a, b, c, d) = params_list[i]
+            # 确保参数在[0,1]范围内
             a = max(0, min(a, 1))
             b = max(a, min(b, 1))
             c = max(b, min(c, 1))
             d = max(c, min(d, 1))
             dynamic_params[level] = (a, b, c, d)
-            
-            self.logger.debug(f"动态隶属度函数参数-{level}: a={a:.3f}, b={b:.3f}, c={c:.3f}, d={d:.3f}")
-        
-        # 创建梯形隶属度函数
+
+        # 参数边界一致性检查
+        for i in range(len(params_list) - 1):
+            current_level, (_, _, _, d_current) = params_list[i]
+            next_level, (a_next, _, _, _) = params_list[i + 1]
+
+            # 如果边界不一致，进行调整
+            if d_current < a_next:
+                # 取中点作为共同边界
+                common_boundary = (d_current + a_next) / 2
+                dynamic_params[current_level] = dynamic_params[current_level][:3] + (common_boundary,)
+                dynamic_params[next_level] = (common_boundary,) + dynamic_params[next_level][1:]
+            elif d_current > a_next:
+                # 确保边界有序
+                common_boundary = (d_current + a_next) / 2
+                dynamic_params[current_level] = dynamic_params[current_level][:3] + (common_boundary,)
+                dynamic_params[next_level] = (common_boundary,) + dynamic_params[next_level][1:]
+
+        # 记录参数用于诊断
+        for level, params in dynamic_params.items():
+            logging.debug(
+                f"动态隶属度函数参数-{level}: a={params[0]:.3f}, b={params[1]:.3f}, c={params[2]:.3f}, d={params[3]:.3f}")
+
+        # 创建隶属度函数
         return self._create_membership_functions(dynamic_params)
-    
+
     def calculate_membership_degree(self, 
-                                   expert_scores: np.ndarray, 
+                                   expert_scores: np.ndarray,
+                                   expert_weights: Optional[list[float]] = None,
                                    use_dynamic: Optional[bool] = None) -> np.ndarray:
         """
         计算风险因素的隶属度向量
         
         Args:
             expert_scores (np.ndarray): 专家评分数组(归一化后，0-1范围)
+            expert_weights (list[float]): FCE的专家权重
             use_dynamic (Optional[bool]): 是否使用动态隶属度函数，None表示使用默认设置
             
         Returns:
@@ -179,10 +218,11 @@ class EnhancedFuzzyEvaluator:
         membership = np.zeros(len(self.risk_levels))
         for i, level in enumerate(self.risk_levels):
             mf = membership_functions[level]
-            # 计算每个评分对当前风险等级的隶属度，然后取平均值
-            membership_values = [mf(score) for score in scores]
-            membership[i] = np.mean(membership_values)
-        
+            # Calculate individual membership values for each expert score
+            individual_memberships = np.array([mf(score) for score in scores])
+            # Apply expert weights to individual membership values
+            membership[i] = np.sum(individual_memberships * np.array(expert_weights, dtype=float))
+
         # 归一化处理
         sum_membership = np.sum(membership)
         if sum_membership > 0:
@@ -242,8 +282,9 @@ class EnhancedFuzzyEvaluator:
         return risk_index
     
     def evaluate(self, 
-                expert_scores: Dict[str, np.ndarray], 
+                expert_scores: Dict[str, np.ndarray],
                 factor_weights: Dict[str, float],
+                expert_weights: Optional[list[float]] = None,
                 use_dynamic: Optional[bool] = None) -> Dict[str, Any]:
         """
         单层模糊综合评价
@@ -251,6 +292,7 @@ class EnhancedFuzzyEvaluator:
         Args:
             expert_scores (Dict[str, np.ndarray]): 专家评分 {因素: 评分数组}
             factor_weights (Dict[str, float]): 因素权重 {因素: 权重}
+            expert_weights (list[float]): FCE的专家权重
             use_dynamic (Optional[bool]): 是否使用动态隶属度函数
             
         Returns:
@@ -278,7 +320,7 @@ class EnhancedFuzzyEvaluator:
         for i, factor in enumerate(ordered_factors):
             # 计算隶属度
             normalized_scores = np.asarray(expert_scores[factor]) / 10.0  # 假设原始评分为1-10
-            membership = self.calculate_membership_degree(normalized_scores, use_dynamic)
+            membership = self.calculate_membership_degree(normalized_scores, expert_weights, use_dynamic)
             factor_membership[factor] = membership
             membership_matrix[i] = membership
         
@@ -489,27 +531,154 @@ class EnhancedFuzzyEvaluator:
         self.evaluation_cache["latest_cross_sensitivity"] = result
         
         return result
-    
-    def visualize_membership_functions(self, 
-                                      use_dynamic: bool = True, 
-                                      scores: Optional[np.ndarray] = None,
-                                      output_path: Optional[str] = None):
+
+    @staticmethod
+    def detect_available_fonts():
+        """
+        检测系统中可用的中文字体
+
+        返回:
+            List[str]: 检测到的可能支持中文的字体列表
+        """
+        import matplotlib.font_manager as fm
+
+        print("检测系统中可用的字体...")
+
+        # 查找系统字体
+        system_fonts = fm.findSystemFonts(fontpaths=None)
+        available_fonts = []
+
+        # 可能的中文字体名称片段
+        chinese_font_fragments = [
+            'chinese', 'china', '中文', 'cjk', 'zh',
+            'ming', 'song', 'kai', 'hei', 'gothic',
+            'yahei', 'simhei', 'simsun', 'msyh', 'pingfang',
+            'heiti', 'micro hei', 'wenquanyi', 'wqy'
+        ]
+
+        # 检测中文字体
+        for font_path in system_fonts:
+            try:
+                font_prop = fm.FontProperties(fname=font_path)
+                font_name = font_prop.get_name()
+                font_name_lower = font_name.lower()
+
+                # 检查字体名称是否包含中文相关字符串
+                if any(fragment in font_name_lower for fragment in chinese_font_fragments):
+                    available_fonts.append((font_name, font_path))
+            except Exception:
+                continue
+
+        print(f"检测到 {len(available_fonts)} 个可能支持中文的字体")
+        for i, (name, path) in enumerate(available_fonts[:10], 1):
+            print(f"{i}. {name} - {path}")
+
+        if len(available_fonts) > 10:
+            print(f"... 还有 {len(available_fonts) - 10} 个字体未显示")
+
+        return available_fonts
+
+    @staticmethod
+    def configure_chinese_font():
+        """
+        配置适用于当前操作系统的中文字体
+
+        返回:
+            FontProperties: 中文字体属性对象
+            bool: 是否已全局配置字体
+        """
+        import platform
+        import matplotlib.font_manager as fm
+        from matplotlib.font_manager import FontProperties
+
+        system = platform.system()
+        font_prop = None
+        global_config = False
+
+        try:
+            if system == 'Windows':
+                # Windows系统使用微软雅黑或黑体
+                font_paths = [
+                    r'C:\Windows\Fonts\msyh.ttc',  # 微软雅黑
+                    r'C:\Windows\Fonts\simhei.ttf'  # 黑体
+                ]
+
+                for path in font_paths:
+                    if os.path.exists(path):
+                        font_prop = FontProperties(fname=path)
+                        plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei']
+                        global_config = True
+                        break
+
+            elif system == 'Darwin':  # macOS
+                # macOS系统使用苹方或华文黑体
+                font_paths = [
+                    '/System/Library/Fonts/PingFang.ttc',
+                    '/Library/Fonts/Hiragino Sans GB.ttc',
+                    '/System/Library/Fonts/STHeiti Light.ttc'
+                ]
+
+                for path in font_paths:
+                    if os.path.exists(path):
+                        font_prop = FontProperties(fname=path)
+                        plt.rcParams['font.sans-serif'] = ['PingFang SC', 'Hiragino Sans GB', 'STHeiti']
+                        global_config = True
+                        break
+
+            else:  # Linux和其他系统
+                # 尝试使用常见的中文字体
+                chinese_fonts = ['WenQuanYi Micro Hei', 'Droid Sans Fallback', 'Noto Sans CJK SC', 'SimSun', 'SimHei']
+
+                # 检测系统中是否有这些字体
+                available_fonts = fm.findSystemFonts(fontpaths=None)
+                for font in available_fonts:
+                    font_name = fm.FontProperties(fname=font).get_name()
+                    if any(cf.lower() in font_name.lower() for cf in chinese_fonts):
+                        font_prop = FontProperties(fname=font)
+                        plt.rcParams['font.sans-serif'] = [font_name]
+                        global_config = True
+                        break
+
+            # 如果未找到合适字体，使用matplotlib的回退机制
+            if font_prop is None:
+                plt.rcParams['font.sans-serif'] = ['DejaVu Sans'] + plt.rcParams['font.sans-serif']
+                logging.warning("未找到合适的中文字体，使用系统默认字体，中文显示可能不正确")
+                font_prop = FontProperties()
+
+            # 正确显示负号
+            plt.rcParams['axes.unicode_minus'] = False
+
+            return font_prop, global_config
+
+        except Exception as e:
+            logging.error(f"配置中文字体出错: {str(e)}")
+            plt.rcParams['font.sans-serif'] = ['DejaVu Sans'] + plt.rcParams['font.sans-serif']
+            plt.rcParams['axes.unicode_minus'] = False
+            return FontProperties(), False
+
+    def visualize_membership_functions(self,
+                                       use_dynamic: bool = True,
+                                       scores: Optional[np.ndarray] = None,
+                                       output_path: Optional[str] = None):
         """
         可视化隶属度函数
-        
-        Args:
-            use_dynamic (bool): 是否使用动态隶属度函数
-            scores (Optional[np.ndarray]): 用于生成动态隶属度函数的评分数据
-            output_path (Optional[str]): 输出文件路径，如不提供则显示图形
+
+        参数:
+            use_dynamic: 是否使用动态隶属度函数
+            scores: 用于生成动态隶属度函数的评分数据
+            output_path: 输出文件路径
         """
+        # 获取中文字体配置
+        font_prop, _ = self.configure_chinese_font()
+
         # 确定使用哪种隶属度函数
         if use_dynamic:
             if scores is None:
                 if self.last_used_membership_functions:
                     membership_functions = self.last_used_membership_functions
-                    self.logger.info("使用最近一次的动态隶属度函数进行可视化")
+                    logging.info("使用最近一次的动态隶属度函数进行可视化")
                 else:
-                    self.logger.warning("未提供评分数据且无缓存的动态隶属度函数，将使用静态函数")
+                    logging.warning("未提供评分数据且无缓存的动态隶属度函数，将使用静态函数")
                     membership_functions = self.static_membership_functions
             else:
                 # 使用提供的评分生成动态隶属度函数
@@ -517,166 +686,181 @@ class EnhancedFuzzyEvaluator:
                 membership_functions = self.generate_dynamic_membership_functions(normalized_scores)
         else:
             membership_functions = self.static_membership_functions
-        
+
         # 创建x轴数据点
         x = np.linspace(0, 1, 100)
-        
+
         # 计算每个风险等级在各点的隶属度
         plt.figure(figsize=(10, 6))
-        
+
         for level in self.risk_levels:
             mf = membership_functions[level]
             y = [mf(xi) for xi in x]
             plt.plot(x, y, label=level, linewidth=2)
-        
-        plt.title("风险等级隶属度函数" + (" (动态)" if use_dynamic else " (静态)"))
-        plt.xlabel("归一化评分")
-        plt.ylabel("隶属度")
+
+        # 设置图表标题和标签（使用中文字体）
+        title_str = "风险等级隶属度函数" + (" (动态)" if use_dynamic else " (静态)")
+        plt.title(title_str, fontproperties=font_prop, fontsize=14)
+        plt.xlabel("归一化评分", fontproperties=font_prop, fontsize=12)
+        plt.ylabel("隶属度", fontproperties=font_prop, fontsize=12)
         plt.grid(True, alpha=0.3)
-        plt.legend()
-        
+        plt.legend(prop=font_prop)
+
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             plt.close()
         else:
             plt.show()
-    
-    def visualize_sensitivity_analysis(self, 
-                                      sensitivity_results: Optional[Dict[str, Any]] = None,
-                                      top_n: int = 5,
-                                      output_dir: Optional[str] = None):
+
+    def visualize_sensitivity_analysis(self,
+                                       sensitivity_results: Optional[Dict[str, Any]] = None,
+                                       top_n: int = 5,
+                                       output_dir: Optional[str] = None):
         """
         可视化敏感性分析结果
-        
-        Args:
-            sensitivity_results (Optional[Dict]): 敏感性分析结果，如不提供则使用最近缓存
-            top_n (int): 显示前n个最敏感的因素
-            output_dir (Optional[str]): 输出目录，如不提供则显示图形
+
+        参数:
+            sensitivity_results: 敏感性分析结果
+            top_n: 显示前n个最敏感的因素
+            output_dir: 输出目录
         """
+        # 获取中文字体配置
+        font_prop, _ = self.configure_chinese_font()
+
         # 获取敏感性分析结果
         if sensitivity_results is None:
             if "latest_sensitivity" in self.evaluation_cache:
                 sensitivity_results = self.evaluation_cache["latest_sensitivity"]
             else:
                 raise ValueError("未提供敏感性分析结果且无缓存结果可用")
-        
+
         # 提取数据
         sensitivity_indices = sensitivity_results["sensitivity_indices"]
         ranked_factors = sensitivity_results["ranked_factors"]
         variation_curves = sensitivity_results["variation_curves"]
-        
+
         # 如果需要保存图片，确保目录存在
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
-        
+
         # 1. 绘制敏感性指标条形图
         plt.figure(figsize=(12, 6))
-        
+
         # 提取前top_n个因素数据
         top_factors = ranked_factors[:min(top_n, len(ranked_factors))]
         top_indices = [sensitivity_indices[f] for f in top_factors]
-        
+
         # 为正负值设置不同颜色
         colors = ['#3498db' if v >= 0 else '#e74c3c' for v in top_indices]
-        
+
         bars = plt.bar(top_factors, top_indices, color=colors)
-        
+
         # 添加数值标签
         for bar, value in zip(bars, top_indices):
             height = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width()/2., 
-                    0.01 if height < 0 else height + 0.01,
-                    f'{value:.4f}',
-                    ha='center', va='bottom' if height >= 0 else 'top', 
-                    fontsize=9)
-        
+            plt.text(bar.get_x() + bar.get_width() / 2.,
+                     0.01 if height < 0 else height + 0.01,
+                     f'{value:.4f}',
+                     ha='center', va='bottom' if height >= 0 else 'top',
+                     fontsize=9)
+
         plt.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        plt.axhline(y=sensitivity_results["mean_sensitivity"], color='green', 
-                   linestyle='--', alpha=0.7, label=f'平均敏感性: {sensitivity_results["mean_sensitivity"]:.4f}')
-        
-        plt.title("风险因素敏感性分析")
-        plt.xlabel("风险因素")
-        plt.ylabel("敏感性指标")
+        plt.axhline(y=sensitivity_results["mean_sensitivity"], color='green',
+                    linestyle='--', alpha=0.7,
+                    label=f'平均敏感性: {sensitivity_results["mean_sensitivity"]:.4f}')
+
+        # 使用中文字体
+        plt.title("风险因素敏感性分析", fontproperties=font_prop, fontsize=14)
+        plt.xlabel("风险因素", fontproperties=font_prop, fontsize=12)
+        plt.ylabel("敏感性指标", fontproperties=font_prop, fontsize=12)
         plt.xticks(rotation=45, ha='right')
         plt.grid(True, alpha=0.3)
-        plt.legend()
+        plt.legend(prop=font_prop)
         plt.tight_layout()
-        
+
         if output_dir:
-            plt.savefig(os.path.join(output_dir, "sensitivity_indices.png"), dpi=300)
+            plt.savefig(os.path.join(output_dir, "sensitivity_indices.png"), dpi=300, bbox_inches='tight')
             plt.close()
         else:
             plt.show()
-        
+
         # 2. 绘制敏感性曲线图
         plt.figure(figsize=(12, 6))
-        
+
         for factor in top_factors:
             curve = variation_curves[factor]
-            plt.plot([v*100 for v in curve["variations"]], curve["risk_indices"], 
-                    marker='o', linewidth=2, label=factor)
-        
+            plt.plot([v * 100 for v in curve["variations"]], curve["risk_indices"],
+                     marker='o', linewidth=2, label=factor)
+
         plt.axvline(x=0, color='black', linestyle='-', alpha=0.3)
-        plt.title("风险因素权重变化敏感性曲线")
-        plt.xlabel("权重变化率 (%)")
-        plt.ylabel("风险指数")
+
+        # 使用中文字体
+        plt.title("风险因素权重变化敏感性曲线", fontproperties=font_prop, fontsize=14)
+        plt.xlabel("权重变化率 (%)", fontproperties=font_prop, fontsize=12)
+        plt.ylabel("风险指数", fontproperties=font_prop, fontsize=12)
         plt.grid(True, alpha=0.3)
-        plt.legend()
+        plt.legend(prop=font_prop)
         plt.tight_layout()
-        
+
         if output_dir:
-            plt.savefig(os.path.join(output_dir, "sensitivity_curves.png"), dpi=300)
+            plt.savefig(os.path.join(output_dir, "sensitivity_curves.png"), dpi=300, bbox_inches='tight')
             plt.close()
         else:
             plt.show()
-    
+
     def visualize_cross_sensitivity(self,
-                                  cross_results: Optional[Dict[str, Any]] = None,
-                                  output_dir: Optional[str] = None):
+                                    cross_results: Optional[Dict[str, Any]] = None,
+                                    output_dir: Optional[str] = None):
         """
         可视化交叉敏感性分析结果
-        
-        Args:
-            cross_results (Optional[Dict]): 交叉敏感性分析结果，如不提供则使用最近缓存
-            output_dir (Optional[str]): 输出目录，如不提供则显示图形
+
+        参数:
+            cross_results: 交叉敏感性分析结果
+            output_dir: 输出目录
         """
+        # 获取中文字体配置
+        font_prop, _ = self.configure_chinese_font()
+
         # 获取交叉敏感性分析结果
         if cross_results is None:
             if "latest_cross_sensitivity" in self.evaluation_cache:
                 cross_results = self.evaluation_cache["latest_cross_sensitivity"]
             else:
                 raise ValueError("未提供交叉敏感性分析结果且无缓存结果可用")
-        
+
         # 提取数据
         risk_matrix = cross_results["risk_matrix"]
-        variations = [f"{v*100:.0f}%" for v in cross_results["variations"]]
+        variations = [f"{v * 100:.0f}%" for v in cross_results["variations"]]
         factors = cross_results["factors"]
         baseline = cross_results["baseline_risk_index"]
-        
+
         # 如果需要保存图片，确保目录存在
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
-        
+
         # 绘制热力图
         plt.figure(figsize=(10, 8))
-        
+
         # 创建热力图
+        import seaborn as sns
         sns.heatmap(risk_matrix, annot=True, fmt=".3f", cmap="viridis",
-                   xticklabels=variations, yticklabels=variations)
-        
-        plt.title(f"交叉敏感性分析: {factors[0]} vs {factors[1]}")
-        plt.xlabel(f"{factors[1]} 权重变化率")
-        plt.ylabel(f"{factors[0]} 权重变化率")
-        
+                    xticklabels=variations, yticklabels=variations)
+
+        # 使用中文字体
+        plt.title(f"交叉敏感性分析: {factors[0]} vs {factors[1]}",
+                  fontproperties=font_prop, fontsize=14)
+        plt.xlabel(f"{factors[1]} 权重变化率", fontproperties=font_prop, fontsize=12)
+        plt.ylabel(f"{factors[0]} 权重变化率", fontproperties=font_prop, fontsize=12)
+
         # 添加基准线
         mid_idx = len(variations) // 2
         plt.axvline(x=mid_idx, color='red', linestyle='--', alpha=0.7)
         plt.axhline(y=mid_idx, color='red', linestyle='--', alpha=0.7)
-        
+
         plt.tight_layout()
-        
+
         if output_dir:
-            plt.savefig(os.path.join(output_dir, "cross_sensitivity.png"), dpi=300)
+            plt.savefig(os.path.join(output_dir, "cross_sensitivity.png"), dpi=300, bbox_inches='tight')
             plt.close()
         else:
             plt.show()

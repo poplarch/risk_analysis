@@ -1,7 +1,42 @@
 {
-    "input_ahp_excel_prefix": "ahp_template",
-    "output_ahp_excel_prefix": "ahp_results",
-    "fuzzy_excel": "fuzzy_risk_evaluation.xlsx",
+  "project": {
+    "name": "信创项目风险分析",
+    "description": "商业银行信息系统信创项目风险分析",
+    "version": "1.0.0"
+  },
+  "paths": {
     "input_dir": "input/",
-    "output_dir": "output/"
+    "output_dir": "output/",
+    "log_dir": "logs/"
+  },
+  "files": {
+    "ahp_excel_prefix": "ahp_template_",
+    "ahp_results_prefix": "ahp_results_",
+    "fuzzy_excel": "fuzzy_risk_evaluation.xlsx"
+  },
+  "ahp_settings": {
+    "ahp_model_level": ["Goal", "技术风险C1", "业务风险C2", "管理风险C3", "运维风险C4", "供应链风险C5", "合规风险C6"],
+    "expert_count": 5,
+    "correction_method": "LLSM",
+    "aggregation_method": "geometric",
+    "weight_method": "eigenvector",
+    "expert_weights_enabled": true
+  },
+  "fuzzy_settings": {
+    "expert_count": 5,
+    "use_dynamic_membership": false,
+    "weight_threshold": 0.03,
+    "risk_levels": ["VL", "L", "M", "H", "VH"]
+  },
+  "analysis_options": {
+    "perform_sensitivity_analysis": true,
+    "sensitivity_depth": 2,
+    "cross_sensitivity_enabled": true
+  },
+  "visualization": {
+    "enabled": true,
+    "output_formats": ["png", "pdf"],
+    "dpi": 300,
+    "color_scheme": "viridis"
+  }
 }

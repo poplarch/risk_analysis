@@ -676,8 +676,6 @@ class ExcelDataHandler:
             scores_df = pd.read_excel(
                 excel_path,
                 sheet_name="专家评分",
-                skiprows=1,  # 跳过标题行
-                usecols=[1, 2, 3, 4, 5],  # 专家1-5的评分列
                 index_col=0  # 使用第一列作为索引（风险因素）
             )
 
@@ -690,13 +688,12 @@ class ExcelDataHandler:
             # 尝试读取专家权重
             expert_weights = None
             try:
-                weights_df = pd.read_excel(excel_path, sheet_name="专家权重", usecols=["权重值"])
+                weights_df = pd.read_excel(excel_path, sheet_name="专家权重")
                 expert_weights = weights_df["权重值"].values.tolist()
 
                 # 检查权重和是否为1
                 if not np.isclose(sum(expert_weights), 1.0, rtol=1e-5):
-                    self.logger.warning("专家权重和不为 1，自动归一化")
-                    expert_weights = [w / sum(expert_weights) for w in expert_weights]
+                    self.logger.warning("专家权重和不为 1, 将使用使用默认值")
             except Exception as e:
                 self.logger.warning(f"无法读取专家权重: {str(e)}，将使用默认均等权重")
 
@@ -771,8 +768,8 @@ class ExcelDataHandler:
 
             # 检查权重和是否为1
             if not np.isclose(sum(weights), 1.0, rtol=1e-5):
-                self.logger.warning("专家权重和不为 1，自动归一化")
-                weights = [w / sum(weights) for w in weights]
+                self.logger.warning("专家权重和不为 1")
+                return None
 
             self.logger.info(f"成功读取专家权重: {weights}")
             return weights

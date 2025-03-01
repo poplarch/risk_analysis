@@ -50,63 +50,279 @@ def setup_logging(log_dir: str = "logs", log_level: int = logging.INFO) -> None:
     logging.getLogger("matplotlib").setLevel(logging.WARNING)
     logging.getLogger("PIL").setLevel(logging.WARNING)
 
+def create_default_config() -> Dict:
+    """
+    Create default configuration dictionary with sensible defaults
+
+    Returns:
+        Dict: Default configuration structure
+    """
+    # Default configuration structure
+    default_config = {
+        "project": {
+            "name": "信创项目风险分析",
+            "description": "商业银行信息系统信创项目风险分析",
+            "version": "1.0.0"
+        },
+        "paths": {
+            "input_dir": "input/",
+            "output_dir": "output/",
+            "log_dir": "logs/"
+        },
+        "files": {
+            "ahp_excel_prefix": "ahp_template_",
+            "ahp_results_prefix": "ahp_results_",
+            "fuzzy_excel": "fuzzy_risk_evaluation.xlsx"
+        },
+        "ahp_settings": {
+            "ahp_model_level": ["Goal", "Criteria1", "Criteria2", "Criteria3", "Criteria4", "Criteria5"],
+            "correction_method": "LLSM",
+            "aggregation_method": "geometric",
+            "weight_method": "eigenvector",
+            "expert_weights_enabled": True,
+        },
+        "fuzzy_settings": {
+            "use_dynamic_membership": True,
+            "weight_threshold": 0.03,
+            "risk_levels": ["VL", "L", "M", "H", "VH"]
+        },
+        "analysis_options": {
+            "perform_sensitivity_analysis": True,
+            "sensitivity_depth": 2,
+            "cross_sensitivity_enabled": True
+        },
+        "visualization": {
+            "enabled": True,
+            "output_formats": ["png"],
+            "dpi": 300,
+            "color_scheme": "viridis"
+        }
+    }
+
+    return default_config
+
 
 def validate_config(config: Dict) -> Dict:
     """
-    验证配置文件
+    Validate configuration dictionary and ensure required parameters exist
 
     Args:
-        config: 配置字典
+        config: Configuration dictionary to validate
 
     Returns:
-        验证后的配置字典
+        Dict: Validated and normalized configuration
 
     Raises:
-        FileNotFoundError: 如果必要文件不存在
-        ValueError: 如果配置项无效
+        FileNotFoundError: If required input files are missing
+        ValueError: If configuration parameters are invalid
     """
-    required_files = [
-        ("fuzzy_excel", "模糊评价数据文件"),
-        ("input_dir", "输入目录")
-    ]
+    # Normalize and validate paths
+    for path_key in ["input_dir", "output_dir", "log_dir"]:
+        if path_key in config.get("paths", {}):
+            # Ensure paths end with "/"
+            if not config["paths"][path_key].endswith("/"):
+                config["paths"][path_key] += "/"
 
-    # 检查文件存在性
-    for file_key, description in required_files:
-        if file_key in config:
-            path = config[file_key]
-            if file_key.endswith("_dir"):
-                if not os.path.isdir(path):
-                    os.makedirs(path, exist_ok=True)
-                    logging.warning(f"创建{description}目录: {path}")
-            elif not os.path.exists(f'{config["input_dir"]}{path}'):
-                raise FileNotFoundError(f"{description}{config['input_dir']}{path}'")
+            # Create directories if they don't exist
+            if path_key != "input_dir":  # Don't create input dir
+                os.makedirs(config["paths"][path_key], exist_ok=True)
+                logging.info(f"Created directory: {config['paths'][path_key]}")
 
-    # 设置默认值
-    defaults = {
-        "ahp_excel_inprefix": "ahp_template",
-        "ahp_excel_outprefix": "ahp_results",
-        "fuzzy_excel": "fuzzy_risk_evaluation.xlsx",
-        "input_dir": "input",
-        "output_dir": "output",
-        "use_dynamic_membership": True,
-        "perform_sensitivity_analysis": True,
-        "visualization_enabled": True
-    }
+    # Extract key configuration parameters for validation
+    input_dir = config.get("paths", {}).get("input_dir", "input/")
+    ahp_prefix = config.get("files", {}).get("ahp_excel_prefix", "ahp_template_")
+    fuzzy_excel = config.get("files", {}).get("fuzzy_excel", "fuzzy_risk_evaluation.xlsx")
+    ahp_model_level = config.get("ahp_settings", {}).get("ahp_model_level")
 
-    # 应用默认值
-    for key, value in defaults.items():
-        if key not in config:
-            config[key] = value
-            logging.info(f"应用默认配置: {key} = {value}")
+    # Validate AHP template files existence
+    missing_ahp_files = []
+    for level in ahp_model_level:
+        ahp_file = f"{input_dir}{ahp_prefix}{level}.xlsx"
+        if not os.path.exists(ahp_file):
+            missing_ahp_files.append(ahp_file)
 
+    if missing_ahp_files:
+        error_msg = f"Missing required AHP template files: {', '.join(missing_ahp_files)}"
+        logging.error(error_msg)
+        raise FileNotFoundError(error_msg)
+
+    # Validate fuzzy evaluation file existence
+    fuzzy_file_path = f"{input_dir}{fuzzy_excel}"
+    if not os.path.exists(fuzzy_file_path):
+        error_msg = f"Missing required fuzzy evaluation file: {fuzzy_file_path}"
+        logging.error(error_msg)
+        raise FileNotFoundError(error_msg)
+
+    # Validate AHP settings
+    valid_correction_methods = ["LLSM", "direct", "iterative"]
+    correction_method = config.get("ahp_settings", {}).get("correction_method", "LLSM")
+    if correction_method not in valid_correction_methods:
+        logging.warning(f"Invalid correction method: {correction_method}. Using default: LLSM")
+        config["ahp_settings"]["correction_method"] = "LLSM"
+
+    valid_aggregation_methods = ["geometric", "arithmetic", "weighted"]
+    aggregation_method = config.get("ahp_settings", {}).get("aggregation_method", "geometric")
+    if aggregation_method not in valid_aggregation_methods:
+        logging.warning(f"Invalid aggregation method: {aggregation_method}. Using default: geometric")
+        config["ahp_settings"]["aggregation_method"] = "geometric"
+
+    valid_weight_methods = ["eigenvector", "geometric", "arithmetic"]
+    weight_method = config.get("ahp_settings", {}).get("weight_method", "eigenvector")
+    if weight_method not in valid_weight_methods:
+        logging.warning(f"Invalid weight method: {weight_method}. Using default: eigenvector")
+        config["ahp_settings"]["weight_method"] = "eigenvector"
+
+    # Validate fuzzy settings
+    weight_threshold = config.get("fuzzy_settings", {}).get("weight_threshold", 0.03)
+    if not isinstance(weight_threshold, (int, float)) or weight_threshold < 0 or weight_threshold > 1:
+        logging.warning(f"Invalid weight threshold: {weight_threshold}. Using default: 0.03")
+        config["fuzzy_settings"]["weight_threshold"] = 0.03
+
+    # Validate visualization settings
+    dpi = config.get("visualization", {}).get("dpi", 300)
+    if not isinstance(dpi, int) or dpi < 72:
+        logging.warning(f"Invalid DPI value: {dpi}. Using default: 300")
+        config["visualization"]["dpi"] = 300
+
+    # Apply default values for any missing parameters
+    default_config = create_default_config()
+
+    # Recursively merge default values for missing keys
+    def merge_defaults(target, source):
+        for key, value in source.items():
+            if key not in target:
+                target[key] = value
+            elif isinstance(value, dict) and isinstance(target[key], dict):
+                merge_defaults(target[key], value)
+
+    merge_defaults(config, default_config)
+
+    logging.info("Configuration validated successfully")
     return config
 
+def load_config(config_path: str) -> Dict:
+    """
+    Load and validate configuration
 
+    Args:
+        config_path: Path to configuration file
+
+    Returns:
+        Validated configuration dictionary
+    """
+    # Load configuration
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        logging.info(f"Loaded configuration from: {config_path}")
+    else:
+        # Create default configuration
+        config = create_default_config()
+        os.makedirs(os.path.dirname(config_path) or ".", exist_ok=True)
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        logging.info(f"Created default configuration: {config_path}")
+
+    # Validate and normalize configuration
+    config = validate_config(config)
+    return config
+
+def present_hierarchical_weights(
+        criteria_weights: Dict[str, float],
+        sub_criteria_weights: Dict[str, Dict[str, float]],
+        global_weights: Dict[str, float]
+) -> None:
+    """
+    Generates tabular presentation of multi-level weight hierarchies
+
+    Args:
+        criteria_weights: Top-level criteria weights
+        sub_criteria_weights: Nested dictionary of sub-criteria weights
+        global_weights: Calculated global weights
+    """
+    # Prepare structured presentation of hierarchical data
+    print("\n========== Weight Analysis Results ==========")
+
+    # Present primary criteria
+    print("\nPrimary Criteria Weights:")
+    weights_table = [(k, f"{v:.4f}") for k, v in criteria_weights.items()]
+    print(tabulate(
+        weights_table,
+        headers=["Criterion", "Weight"],
+        tablefmt="grid",
+        colalign=("left", "right")
+    ))
+
+    # Present sub-criteria with local weights
+    print("\nSub-Criteria Local Weights:")
+    for main_criterion, weights in sub_criteria_weights.items():
+        print(f"\n{main_criterion}:")
+        local_table = [(k, f"{v:.4f}") for k, v in weights.items()]
+        print(tabulate(
+            local_table,
+            headers=["Sub-Criterion", "Local Weight"],
+            tablefmt="grid",
+            colalign=("left", "right")
+        ))
+
+    # Present global weights (descending order)
+    print("\nGlobal Criteria Weights (Descending):")
+    global_table = [(k, f"{v:.4f}") for k, v in sorted(
+        global_weights.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )]
+    print(tabulate(
+        global_table,
+        headers=["Criterion", "Global Weight"],
+        tablefmt="grid",
+        colalign=("left", "right")
+    ))
+
+
+def display_risk_analysis_matrix(
+        sensitivity_results: pd.DataFrame,
+        include_rankings: bool = True
+) -> None:
+    """
+    Presents sensitivity analysis results with comprehensive alignment specifications
+
+    Args:
+        sensitivity_results: DataFrame containing sensitivity metrics
+        include_rankings: Flag to include ordinal rankings in output
+    """
+    # Extract and prepare data
+    if include_rankings:
+        # Add ranking column to input DataFrame
+        sensitivity_results['Rank'] = sensitivity_results['敏感性指标'].rank(ascending=False, method='min').astype(int)
+
+    # Define column alignment specifications
+    headers = sensitivity_results.columns.tolist()
+    alignment_map = {
+        '风险因素': 'left',  # Left-align textual identifiers
+        '敏感性指标': 'decimal',  # Align numerical values at decimal point
+        'Rank': 'center',  # Center-align ordinal rankings
+        '原始权重': 'decimal'  # Align numerical values at decimal point
+    }
+
+    # Generate column alignment specification
+    colalign = [alignment_map.get(col, 'center') for col in headers]
+
+    # Configure presentation parameters
+    print(tabulate(
+        sensitivity_results,
+        headers=headers,
+        tablefmt="grid",
+        colalign=colalign,
+        floatfmt=".4f",  # Standardize floating-point representation
+        showindex=False  # Suppress dataframe index display
+    ))
 def process_ahp_level(
         ahp_processor: AHPProcessor,
         level: str,
         criteria_weights: Dict[str, float],
-        sub_criteria_weights: Dict[str, Dict[str, float]]
+        sub_criteria_weights: Dict[str, Dict[str, float]],
+        excel_results_path: str
 ) -> None:
     """
     处理单个AHP层级并更新权重字典
@@ -116,6 +332,7 @@ def process_ahp_level(
         level: 层级名称
         criteria_weights: 一级准则权重字典
         sub_criteria_weights: 二级准则权重字典
+        excel_results_path: AHP结果文件
     """
     try:
         logging.info(f"处理AHP层级: {level}")
@@ -149,12 +366,8 @@ def process_ahp_level(
         print(f"聚合矩阵一致性比率(CR): {cr:.4f}")
 
         # 导出结果
-        output_path = os.path.join(
-            ahp_processor.config["output_dir"],
-            f"{ahp_processor.config['ahp_excel_outprefix']}_{level}.xlsx"
-        )
-        ExcelExporter().export_ahp_results(results, output_path)
-        logging.info(f"已导出AHP结果到: {output_path}")
+        ExcelExporter().export_ahp_results(results, excel_results_path)
+        logging.info(f"已导出AHP结果到: {excel_results_path}")
 
     except Exception as e:
         logging.error(f"处理层级 {level} 出错: {str(e)}")
@@ -193,8 +406,7 @@ def calculate_global_weights(
 def perform_enhanced_fuzzy_evaluation(
         global_weights: Dict[str, float],
         excel_handler: ExcelDataHandler,
-        fuzzy_excel_path: str,
-        config: Dict
+        fuzzy_config: Dict
 ) -> Dict[str, Any]:
     """
     执行增强型模糊综合评价
@@ -202,8 +414,7 @@ def perform_enhanced_fuzzy_evaluation(
     Args:
         global_weights: 全局权重字典
         excel_handler: Excel数据处理器
-        fuzzy_excel_path: 模糊评价Excel文件路径
-        config: 配置信息
+        fuzzy_config: 模糊综合评价配置信息
 
     Returns:
         评价结果字典
@@ -211,14 +422,17 @@ def perform_enhanced_fuzzy_evaluation(
     try:
         # 初始化增强型模糊评价器
         fuzzy_evaluator = EnhancedFuzzyEvaluator(
-            dynamic_enabled=config.get("use_dynamic_membership", True)
+            risk_levels = fuzzy_config["risk_levels"],
+            dynamic_enabled = fuzzy_config["use_dynamic_membership"]
         )
 
         # 读取专家评分数据
-        scores_df, expert_weights = excel_handler.read_expert_scores(fuzzy_excel_path)
+        scores_df, fce_expert_weights = excel_handler.read_expert_scores(fuzzy_config["fuzzy_excel"])
+        if fce_expert_weights is None:
+            fce_expert_weights = [1.0/scores_df.shape[1]] * scores_df.shape[1]
 
         # 过滤权重大于阈值的风险因素
-        weight_threshold = config.get("weight_threshold", 0.03)
+        weight_threshold = fuzzy_config.get("weight_threshold", 0.03)
         significant_factors = {k: v for k, v in global_weights.items() if v >= weight_threshold}
 
         if not significant_factors:
@@ -237,18 +451,17 @@ def perform_enhanced_fuzzy_evaluation(
         evaluation_results = fuzzy_evaluator.evaluate(
             expert_scores=expert_scores,
             factor_weights=significant_factors,
-            use_dynamic=config.get("use_dynamic_membership", True)
+            expert_weights=fce_expert_weights,
         )
 
         # 如果需要进行敏感性分析
-        if config.get("perform_sensitivity_analysis", True):
+        if fuzzy_config["perform_sensitivity_analysis"]:
             logging.info("执行敏感性分析...")
 
             # 单因素敏感性分析
             sensitivity_results = fuzzy_evaluator.perform_sensitivity_analysis(
                 factor_weights=significant_factors,
                 expert_scores=expert_scores,
-                use_dynamic=config.get("use_dynamic_membership", True)
             )
 
             # 识别最敏感的两个因素进行交叉敏感性分析
@@ -258,7 +471,6 @@ def perform_enhanced_fuzzy_evaluation(
                     factor_weights=significant_factors,
                     expert_scores=expert_scores,
                     factors=top_factors,
-                    use_dynamic=config.get("use_dynamic_membership", True)
                 )
             else:
                 cross_results = None
@@ -284,23 +496,26 @@ def visualize_results(
     """
     可视化分析结果
 
-    Args:
+    参数:
         evaluation_results: 评价结果
         config: 配置信息
         output_dir: 输出目录
     """
-    if not config.get("visualization_enabled", True):
+    if not config.get("visualization", {}).get("enabled", True):
         logging.info("可视化功能已禁用")
         return
 
     try:
+        # 获取中文字体配置
+        font_prop, _ = EnhancedFuzzyEvaluator.configure_chinese_font()
+
         # 创建可视化目录
         viz_dir = os.path.join(output_dir, "visualizations")
         os.makedirs(viz_dir, exist_ok=True)
 
         # 初始化模糊评价器
         fuzzy_evaluator = EnhancedFuzzyEvaluator(
-            dynamic_enabled=config.get("use_dynamic_membership", True)
+            dynamic_enabled=config.get("fuzzy_settings", {}).get("use_dynamic_membership", True)
         )
 
         # 1. 可视化隶属度函数
@@ -310,7 +525,7 @@ def visualize_results(
             sample_scores = np.array([0.1, 0.3, 0.5, 0.7, 0.9])  # 示例评分点
 
             fuzzy_evaluator.visualize_membership_functions(
-                use_dynamic=config.get("use_dynamic_membership", True),
+                use_dynamic=config.get("fuzzy_settings", {}).get("use_dynamic_membership", True),
                 scores=sample_scores,
                 output_path=os.path.join(viz_dir, "membership_functions.png")
             )
@@ -329,11 +544,13 @@ def visualize_results(
                 plt.text(bar.get_x() + bar.get_width() / 2., height + 0.01,
                          f'{height:.3f}', ha='center', va='bottom')
 
-            plt.title("风险等级隶属度分布")
-            plt.ylabel("隶属度")
+            # 使用中文字体
+            plt.title("风险等级隶属度分布", fontproperties=font_prop, fontsize=14)
+            plt.ylabel("隶属度", fontproperties=font_prop, fontsize=12)
             plt.ylim(0, max(result) * 1.2)
             plt.grid(True, alpha=0.3)
-            plt.savefig(os.path.join(viz_dir, "fuzzy_results.png"), dpi=300)
+
+            plt.savefig(os.path.join(viz_dir, "fuzzy_results.png"), dpi=300, bbox_inches='tight')
             plt.close()
             logging.info("已生成模糊评价结果可视化")
 
@@ -357,7 +574,6 @@ def visualize_results(
     except Exception as e:
         logging.error(f"生成可视化图表出错: {str(e)}")
         print(f"生成可视化图表出错: {str(e)}")
-
 
 def export_evaluation_results(
         evaluation_results: Dict[str, Any],
@@ -484,7 +700,7 @@ def print_evaluation_summary(evaluation_results: Dict[str, Any]) -> None:
 def main():
     """主函数"""
     # 命令行参数解析
-    parser = argparse.ArgumentParser(description="商业银行信息系统信创项目风险分析工具 - 优化版")
+    parser = argparse.ArgumentParser(description="商业银行信息系统信创项目风险分析工具")
     parser.add_argument("--config", default="config.json", help="配置文件路径")
     parser.add_argument("--debug", action="store_true", help="启用调试模式")
     args = parser.parse_args()
@@ -495,105 +711,115 @@ def main():
 
     try:
         # 加载配置
-        if os.path.exists(args.config):
-            with open(args.config, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            logging.info(f"已加载配置文件: {args.config}")
-        else:
-            # 默认配置
-            config = {
-                "ahp_excel_inprefix": "ahp_template_",
-                "ahp_excel_outprefix": "ahp_results_",
-                "fuzzy_excel": "fuzzy_risk_evaluation.xlsx",
-                "input_dir": "input",
-                "output_dir": "output",
-                "use_dynamic_membership": True,
-                "perform_sensitivity_analysis": True,
-                "visualization_enabled": True,
-                "weight_threshold": 0.03
-            }
+        config = load_config(args.config)
+        logging.info(f"已加载配置文件: {args.config}")
 
-            # 保存默认配置
-            os.makedirs(os.path.dirname(args.config) or ".", exist_ok=True)
-            with open(args.config, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=4, ensure_ascii=False)
-            logging.info(f"已创建默认配置文件: {args.config}")
+        # Extract configuration parameters by category
+        # 1. Path configuration
+        input_dir = config.get("paths", {}).get("input_dir", "input/")
+        output_dir = config.get("paths", {}).get("output_dir", "output/")
+        log_dir = config.get("paths", {}).get("log_dir", "logs/")
 
-        # 验证配置
-        config = validate_config(config)
+        # 2. File naming conventions
+        ahp_excel_prefix = config.get("files", {}).get("ahp_excel_prefix", "ahp_template_")
+        ahp_results_prefix = config.get("files", {}).get("ahp_results_prefix", "ahp_results_")
+        fuzzy_excel = config.get("files", {}).get("fuzzy_excel", "fuzzy_risk_evaluation.xlsx")
 
-        # 确保输出目录存在
-        os.makedirs(config["output_dir"], exist_ok=True)
+        # 3. AHP methodological parameters
+        ahp_settings = config.get("ahp_settings", {})
+        ahp_model_level = ahp_settings.get("ahp_model_level")
+        correction_method = ahp_settings.get("correction_method", "LLSM")
+        aggregation_method = ahp_settings.get("aggregation_method", "geometric")
+        weight_method = ahp_settings.get("weight_method", "eigenvector")
 
-        # 定义AHP层次模型结构
-        ahp_model = {
-            "Level": ["Goal", "技术风险C1", "业务风险C2", "管理风险C3", "运维风险C4", "供应链风险C5", "合规风险C6"],
-            "criteria_weights": {},  # 一级准则权重
-            "sub_criteria_weights": {},  # 二级准则权重
-        }
+        # 4. Fuzzy evaluation settings
+        fuzzy_settings = config.get("fuzzy_settings", {})
+        use_dynamic_membership = fuzzy_settings.get("use_dynamic_membership", True)
+        weight_threshold = fuzzy_settings.get("weight_threshold", 0.03)
+        risk_levels = fuzzy_settings.get("risk_levels", ["VL", "L", "M", "H", "VH"])
+
+        # 5. Analysis options
+        analysis_options = config.get("analysis_options", {})
+        perform_sensitivity = analysis_options.get("perform_sensitivity_analysis", True)
+        sensitivity_depth = analysis_options.get("sensitivity_depth", 2)
+        cross_sensitivity = analysis_options.get("cross_sensitivity_enabled", True)
+
+        # 6. Visualization configuration
+        visualization = config.get("visualization", {})
+        visualization_enabled = visualization.get("enabled", True)
+        output_formats = visualization.get("output_formats", ["png"])
+        dpi = visualization.get("dpi", 300)
 
         # 初始化Excel处理器
         excel_handler = ExcelDataHandler()
 
-        # 读取专家权重
-        global_expert_weights = None
-        try:
-            goal_excel_path = f"{config['input_dir']}{config['ahp_excel_inprefix']}_Goal.xlsx"
-            global_expert_weights = excel_handler.read_expert_weights(goal_excel_path)
-            if global_expert_weights:
-                logging.info(f"已读取全局专家权重: {global_expert_weights}")
-        except Exception as e:
-            logging.warning(f"读取专家权重失败，将使用均等权重: {str(e)}")
+        print("\n========== AHP层次分析 ==========")
+        goal_excel_path = f"{input_dir}{ahp_excel_prefix}Goal.xlsx"
+        ahp_expert_weights = excel_handler.read_expert_weights(goal_excel_path)
+        if ahp_expert_weights:
+            logging.info(f"已读取AHP专家权重: {ahp_expert_weights}")
+        else:
+            expert_count = ahp_settings.get("expert_count", 5)
+            ahp_expert_weights = [1.0/expert_count] * expert_count
+            logging.warning("读取专家权重失败，将使用均等权重")
 
         # 初始化AHP处理器
-        ahp_processor = AHPProcessor(f'{config["input_dir"]}{config["ahp_excel_inprefix"]}', global_expert_weights)
-        ahp_processor.config = config  # 附加配置信息
+        ahp_processor = AHPProcessor(f'{input_dir}{ahp_excel_prefix}', ahp_expert_weights)
+        ahp_processor.config = {
+            "correction_method": correction_method,
+            "aggregation_method": aggregation_method,
+            "weight_method": weight_method,
+            "output_dir": output_dir
+        }
 
         # 处理每个AHP层级
-        criteria_weights = ahp_model["criteria_weights"]
-        sub_criteria_weights = ahp_model["sub_criteria_weights"]
+        criteria_weights = {} # 一级风险因素局部权重
+        sub_criteria_weights = {} # 二级风险因素局部权重
 
-        print("\n========== AHP层次分析 ==========")
-        for level in tqdm(ahp_model["Level"], desc="处理AHP层级"):
-            process_ahp_level(ahp_processor, level, criteria_weights, sub_criteria_weights)
+        for level in tqdm((ahp_model_level), desc="处理AHP层级"):
+            process_ahp_level(ahp_processor, level, criteria_weights, sub_criteria_weights, f"{output_dir}{ahp_results_prefix}{level}.xlsx")
 
         # 计算全局权重
         global_weights = calculate_global_weights(criteria_weights, sub_criteria_weights)
 
         # 打印权重结果
         print("\n========== 权重分析结果 ==========")
-        print("\n一级准则权重:")
-        weights_table = [(k, f"{v:.4f}") for k, v in criteria_weights.items()]
-        print(tabulate(weights_table, headers=["准则", "权重"], tablefmt="grid"))
-
-        print("\n二级准则局部权重:")
-        for main_criterion, weights in sub_criteria_weights.items():
-            print(f"\n{main_criterion}:")
-            local_table = [(k, f"{v:.4f}") for k, v in weights.items()]
-            print(tabulate(local_table, headers=["准则", "局部权重"], tablefmt="grid"))
-
-        print("\n所有准则全局权重:")
-        global_table = [(k, f"{v:.4f}") for k, v in sorted(global_weights.items(),
-                                                           key=lambda x: x[1], reverse=True)]
-        print(tabulate(global_table, headers=["准则", "全局权重"], tablefmt="grid"))
+        present_hierarchical_weights(criteria_weights, sub_criteria_weights, global_weights)
 
         # 执行增强型模糊综合评价
         print("\n========== 模糊综合评价 ==========")
+        # Extract fuzzy evaluation configuration parameters
+        fuzzy_config = {
+            # Core fuzzy evaluation parameters
+            "fuzzy_excel": f"{input_dir}{fuzzy_excel}",
+            "use_dynamic_membership": use_dynamic_membership,
+            "weight_threshold": weight_threshold,
+            "risk_levels": risk_levels,
+
+            # Sensitivity analysis configuration
+            "perform_sensitivity_analysis": perform_sensitivity,
+            "sensitivity_depth": sensitivity_depth,
+            "cross_sensitivity_enabled": cross_sensitivity,
+
+            # Output configuration
+            "output_dir": output_dir,
+            "visualization_enabled": visualization_enabled,
+            "dpi": dpi
+        }
         evaluation_results = perform_enhanced_fuzzy_evaluation(
             global_weights,
             excel_handler,
-            config["fuzzy_excel"],
-            config
+            fuzzy_config
         )
 
         # 打印评价结果摘要
         print_evaluation_summary(evaluation_results)
 
         # 可视化结果
-        visualize_results(evaluation_results, config, config["output_dir"])
+        visualize_results(evaluation_results, config, output_dir)
 
         # 导出评价结果
-        export_evaluation_results(evaluation_results, config["output_dir"])
+        export_evaluation_results(evaluation_results, output_dir)
 
         print("\n分析完成！结果已保存到输出目录。")
 
@@ -603,7 +829,6 @@ def main():
         return 1
 
     return 0
-
 
 if __name__ == "__main__":
     exit_code = main()
