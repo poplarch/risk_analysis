@@ -10,6 +10,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.font_manager import FontProperties
+import seaborn as sns
+
 
 def visualization_error_handler(func):
     """
@@ -1040,6 +1042,7 @@ class EnhancedFuzzyEvaluator:
                     fontsize=9
                 )
 
+
     @visualization_error_handler
     def visualize_sensitivity_analysis(self,
                                        sensitivity_results: Optional[Dict[str, Any]] = None,
@@ -1195,6 +1198,7 @@ class EnhancedFuzzyEvaluator:
             logging.error(f"绘制敏感性曲线图出错: {str(e)}")
             plt.close()
 
+
     def visualize_cross_sensitivity(self,
                                     cross_results: Optional[Dict[str, Any]] = None,
                                     output_dir: Optional[str] = None):
@@ -1257,3 +1261,35 @@ class EnhancedFuzzyEvaluator:
             if output_path:
                 plt.savefig(output_path, dpi=300, bbox_inches='tight')
                 plt.close()
+
+    def visualize_sensitivity_uncertainty(sensitivity_results):
+        """
+        可视化敏感性分析的不确定性
+
+        Args:
+            sensitivity_results (Dict): 敏感性分析结果
+        """
+        plt.figure(figsize=(12, 6))
+
+        factors = list(sensitivity_results["direct_sensitivity"].keys())
+        direct_sensitivity = [sensitivity_results["direct_sensitivity"][f] for f in factors]
+        confidence_intervals = [sensitivity_results["confidence_intervals"][f] for f in factors]
+
+        # 绘制带置信区间的条形图
+        plt.errorbar(
+            factors,
+            direct_sensitivity,
+            yerr=[
+                [ds - ci[0] for ds, ci in zip(direct_sensitivity, confidence_intervals)],
+                [ci[1] - ds for ds, ci in zip(direct_sensitivity, confidence_intervals)]
+            ],
+            fmt='o',
+            capsize=5,
+            capthick=2
+        )
+
+        plt.title("风险因素敏感性分析与不确定性")
+        plt.xlabel("风险因素")
+        plt.ylabel("敏感性指标")
+        plt.xticks(rotation=45)
+        plt.tight_layout()
