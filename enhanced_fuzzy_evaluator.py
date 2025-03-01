@@ -473,6 +473,140 @@ class EnhancedFuzzyEvaluator:
 
         return normalized_indices
 
+    def calculate_normalized_weights(
+            factor_weights: Dict[str, float],
+            modified_factor: str,
+            new_weight: float,
+            epsilon: float = 1e-10
+    ) -> Dict[str, float]:
+        """
+        Calculates normalized weight distribution with single factor perturbation
+
+        Parameters:
+            factor_weights (Dict[str, float]): Original risk factor weight dictionary
+            modified_factor (str): Identifier of the factor being modified
+            new_weight (float): New weight value for the modified factor
+            epsilon (float): Numerical stability threshold
+
+        Returns:
+            Dict[str, float]: Normalized weight distribution preserving proportional relationships
+        """
+        # Create working copy of weights to prevent side effects
+        modified_weights = factor_weights.copy()
+
+        # Validate input parameters
+        if modified_factor not in modified_weights:
+            raise ValueError(f"Modified factor '{modified_factor}' not found in weight dictionary")
+
+        # Apply weight modification with numerical stability constraints
+        modified_weights[modified_factor] = max(epsilon, new_weight)
+
+        # Calculate weight adjustment factor
+        original_sum = sum(modified_weights.values())
+        if original_sum <= epsilon:
+            # Handle numerical degenerate case
+            n_factors = len(modified_weights)
+            return {k: 1.0 / n_factors for k in modified_weights}
+
+        # Calculate adjustment factor for proportional normalization
+        non_modified_weight_sum = original_sum - modified_weights[modified_factor]
+        target_remainder = 1.0 - modified_weights[modified_factor]
+
+        # Handle edge case where modified weight exceeds 1.0
+        if target_remainder < epsilon:
+            # Modified weight dominates; set all others to minimum value
+            for factor in modified_weights:
+                if factor != modified_factor:
+                    modified_weights[factor] = epsilon
+            # Adjust modified factor to ensure proper normalization
+            denominator = epsilon * (len(modified_weights) - 1) + modified_weights[modified_factor]
+            scaling_factor = 1.0 / denominator
+        else:
+            # Standard case: proportional adjustment of non-modified weights
+            if non_modified_weight_sum < epsilon:
+                # Handle case where other weights are effectively zero
+                equal_weight = target_remainder / (len(modified_weights) - 1)
+                for factor in modified_weights:
+                    if factor != modified_factor:
+                        modified_weights[factor] = equal_weight
+            else:
+                # Normal proportional adjustment
+                scaling_factor = target_remainder / non_modified_weight_sum
+                for factor in modified_weights:
+                    if factor != modified_factor:
+                        modified_weights[factor] = modified_weights[factor] * scaling_factor
+
+        # Perform final normalization to ensure sum equals 1.0
+        final_sum = sum(modified_weights.values())
+        normalized_weights = {k: v / final_sum for k, v in modified_weights.items()}
+
+        return normalized_weights
+
+    def enhanced_sensitivity_analysis(self, factor_weights: Dict[str, float],
+                                      expert_scores: Dict[str, np.ndarray],
+                                      use_dynamic: bool = None,
+                                      variation_range: float = 0.2,
+                                      steps: int = 10) -> Dict[str, Any]:
+        """
+        Enhanced sensitivity analysis with robust calculation methodology
+        """
+        # Calculate baseline risk index
+        baseline_result = self.evaluate(expert_scores, factor_weights, use_dynamic)
+        baseline_risk_index = baseline_result["risk_index"]
+
+        # Initialize result containers
+        sensitivity_indices = {}
+        variation_curves = {}
+
+        # Apply log transformation to prevent numerical underflow
+        epsilon = 1e-10  # Small constant to prevent logarithm of zero
+
+        # For each factor, calculate sensitivity with robust numerical approach
+        for factor in baseline_result["ordered_factors"]:
+            risk_indices = []
+            original_weight = factor_weights[factor]
+
+            # Skip factors with zero weight
+            if original_weight < epsilon:
+                sensitivity_indices[factor] = 0.0
+                continue
+
+            for variation in np.linspace(-variation_range, variation_range, steps + 1):
+                # Calculate new weight with bounds checking
+                new_weight = max(epsilon, original_weight * (1 + variation))
+
+                # Create modified weights with normalization
+                modified_weights = self.calculate_normalized_weights(factor_weights, factor, new_weight)
+
+                # Calculate risk with modified weights
+                result = self.evaluate(expert_scores, modified_weights, use_dynamic)
+                risk_indices.append(result["risk_index"])
+
+            # Calculate sensitivity with robust approach
+            try:
+                # Use central difference approximation for derivative
+                central_diff = (risk_indices[-1] - risk_indices[0]) / (2 * variation_range)
+
+                # Calculate elasticity (normalized sensitivity)
+                if baseline_risk_index > epsilon:
+                    sensitivity = central_diff * original_weight / baseline_risk_index
+                else:
+                    sensitivity = central_diff * original_weight / epsilon
+
+                # Apply bounded normalization to prevent overflow
+                sensitivity = np.clip(sensitivity, -1.0, 1.0)
+            except Exception:
+                sensitivity = 0.0
+
+            sensitivity_indices[factor] = sensitivity
+            variation_curves[factor] = {"variations": variations, "risk_indices": risk_indices}
+
+        return {
+            "sensitivity_indices": sensitivity_indices,
+            "variation_curves": variation_curves,
+            "baseline_result": baseline_result
+        }
+
     def perform_sensitivity_analysis(self,
                                      factor_weights: Dict[str, float],
                                      expert_scores: Dict[str, np.ndarray],

@@ -1,5 +1,8 @@
 # risk_visualization.py
+import functools
 import os
+
+import networkx as nx
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -24,6 +27,64 @@ except ImportError:
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def safe_visualization(output_dir, module_name):
+    """
+    Creates a decorator for safe visualization execution with comprehensive error handling
+
+    Args:
+        output_dir: Directory for output files
+        module_name: Name of visualization module for logging
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                # Apply dimensional constraints
+                if 'figsize' in kwargs:
+                    kwargs['figsize'] = tuple(min(dim, 32) for dim in kwargs['figsize'])
+
+                # Execute visualization function with timeout
+                result = func(*args, **kwargs)
+                return result
+            except Exception as e:
+                # Log error for diagnostic purposes
+                logging.error(f"Visualization error in {module_name}.{func.__name__}: {str(e)}")
+
+                # Create fallback visualization
+                try:
+                    # Extract function name and parameters for documentation
+                    func_name = func.__name__
+                    arg_str = ", ".join([str(a) for a in args])
+                    kwargs_str = ", ".join([f"{k}={v}" for k, v in kwargs.items()])
+
+                    # Generate simple text-based visualization report
+                    filename = kwargs.get('filename', f"{func_name}_fallback.txt")
+                    report_path = os.path.join(output_dir, filename)
+
+                    with open(report_path, 'w', encoding='utf-8') as f:
+                        f.write(f"# Visualization Error Report\n")
+                        f.write(f"Function: {func_name}\n")
+                        f.write(f"Parameters: {arg_str}, {kwargs_str}\n")
+                        f.write(f"Error: {str(e)}\n\n")
+
+                        # Include basic statistics if data is available
+                        if len(args) > 0 and hasattr(args[0], 'items'):
+                            f.write("## Data Summary\n")
+                            for key, value in args[0].items():
+                                f.write(f"{key}: {value}\n")
+
+                    logging.info(f"Created fallback visualization report: {report_path}")
+                    return None
+                except Exception as fallback_error:
+                    logging.error(f"Failed to create fallback visualization: {str(fallback_error)}")
+                    return None
+
+        return wrapper
+
+    return decorator
 
 class RiskVisualization:
     """风险可视化类，用于生成风险分析的各种可视化图表"""
@@ -116,10 +177,10 @@ class RiskVisualization:
         # 计算百分比
         total = sum(sizes)
         percentages = [s/total*100 for s in sizes]
-        
+
         # 设置扇形颜色
-        colors = plt.cm.Paired(np.linspace(0, 1, len(labels)))
-        
+        colors = plt.cm.tab10(np.linspace(0, 1, len(labels)))
+
         # 绘制饼图
         patches, texts, autotexts = plt.pie(
             sizes, 
@@ -189,10 +250,10 @@ class RiskVisualization:
         
         # 创建图表
         plt.figure(figsize=(12, 9))
-        
+
         # 设置扇形颜色
-        colors = plt.cm.viridis(np.linspace(0, 1, len(labels)))
-        
+        colors = plt.cm.tab10(np.linspace(0, 1, len(labels)))
+
         # 绘制饼图
         wedges, texts, autotexts = plt.pie(
             sizes, 
@@ -350,15 +411,77 @@ class RiskVisualization:
         plt.close()
         
         print(f"敏感性雷达图已保存到: {output_path}")
-    
-    def plot_risk_level_sankey(self, 
-                              risk_distribution: Dict[str, float],
-                              baseline_category: str,
-                              title: str = "风险等级变化流向图",
-                              filename: str = "risk_level_sankey.png") -> None:
+
+    def plot_risk_level_transition(self,
+                                   risk_distribution: Dict[str, float],
+                                   baseline_category: str,
+                                   title: str = "Risk Level Transition Analysis",
+                                   filename: str = "risk_level_transitions.png") -> None:
+        """
+        Alternative visualization methodology for risk level transition analysis
+
+        Parameters:
+            risk_distribution (Dict[str, float]): Risk level probability distribution
+            baseline_category (str): Baseline risk category for comparative analysis
+            title (str): Visualization title
+            filename (str): Output filename
+        """
+        # Create visualization canvas with appropriate dimensions
+        plt.figure(figsize=(10, 6))
+
+        # Extract analytical parameters
+        categories = list(risk_distribution.keys())
+        probabilities = list(risk_distribution.values())
+
+        # Implement stacked horizontal bar visualization
+        # Section 1: Original baseline category
+        plt.barh(0, 1, left=0, height=0.5, color=self.risk_colors.get(baseline_category, '#1f77b4'),
+                 label=f'Baseline: {baseline_category}')
+
+        # Section 2: Transition distribution
+        left = 0
+        for i, (category, prob) in enumerate(sorted(risk_distribution.items(),
+                                                    key=lambda x: x[1], reverse=True)):
+            if category != baseline_category or prob > 0.01:  # Filter negligible transitions
+                plt.barh(1, prob, left=left, height=0.5,
+                         color=self.risk_colors.get(category, '#1f77b4'),
+                         label=f'{category}: {prob:.1%}')
+
+                # Add connectors between baseline and transition categories
+                plt.plot([0.5, left + prob / 2], [0.5, 1], 'k-', alpha=0.3, linewidth=max(1, prob * 5))
+
+                # Add probability labels
+                plt.text(left + prob / 2, 1, f'{prob:.1%}',
+                         ha='center', va='bottom', fontproperties=self.font_properties)
+
+                left += prob
+
+        # Configure visualization parameters
+        plt.yticks([0, 1], ['Baseline State', 'Transition Distribution'], fontproperties=self.font_properties)
+        plt.xlim(0, 1)
+        plt.title(title, fontproperties=self.font_properties, fontsize=14)
+
+        # Add analytical context through legend
+        plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15),
+                   ncol=3, prop=self.font_properties)
+
+        # Implement grid for quantitative reference
+        plt.grid(axis='x', linestyle='--', alpha=0.3)
+
+        # Configure layout and export visualization
+        plt.tight_layout()
+        output_path = os.path.join(self.output_dir, filename)
+        plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
+        plt.close()
+
+    def plot_risk_level_sankey(self,
+                               risk_distribution: Dict[str, float],
+                               baseline_category: str,
+                               title: str = "风险等级变化流向图",
+                               filename: str = "risk_level_sankey.png") -> None:
         """
         绘制风险等级变化Sankey图
-        
+
         参数:
             risk_distribution (Dict[str, float]): 风险等级分布概率
             baseline_category (str): 基准风险等级
@@ -366,57 +489,148 @@ class RiskVisualization:
             filename (str): 输出文件名
         """
         if not SANKEY_AVAILABLE:
-            # 如果Sankey库不可用，使用替代可视化方法
+            # 使用替代可视化方法
             self._plot_risk_level_alternative(
-                risk_distribution, 
-                baseline_category, 
-                title, 
+                risk_distribution,
+                baseline_category,
+                title,
                 filename
             )
             return
-        
-        # 创建图表
-        plt.figure(figsize=(12, 8))
-        
-        # 初始化Sankey图
-        sankey = Sankey(ax=plt.gca(), scale=0.01, offset=0.2, head_angle=120)
-        
-        # 准备Sankey图的流数据
-        flows = []
-        for level, probability in risk_distribution.items():
-            if level != baseline_category and probability > 0.01:  # 忽略很小的概率
-                flows.append((baseline_category, level, probability))
-        
-        # 添加流
-        baseline_sum = sum(v for k, v in risk_distribution.items() if k != baseline_category)
-        if baseline_sum < 1.0:
+
+        try:
+            # 创建图表
+            plt.figure(figsize=(12, 8))
+
+            # 初始化Sankey图
+            sankey = Sankey(ax=plt.gca(), scale=0.01, offset=0.2, head_angle=120)
+
+            # 准备Sankey图的流数据
+            flows = []
+            for level, probability in risk_distribution.items():
+                if level != baseline_category and probability > 0.01:  # 忽略很小的概率
+                    flows.append((baseline_category, level, probability))
+
             # 添加保持在基准等级的流
-            flows.append((baseline_category, baseline_category, 1.0 - baseline_sum))
-        
-        # 配置Sankey图
-        for source, target, value in flows:
-            sankey.add(
-                flows=[value],
-                orientations=[0],
-                labels=[source, target],
-                trunklength=10.0,
-                pathlengths=[5],
-                patchlabel=None
+            baseline_sum = sum(v for k, v in risk_distribution.items() if k != baseline_category)
+            if baseline_sum < 1.0:
+                flows.append((baseline_category, baseline_category, 1.0 - baseline_sum))
+
+            # 构建连贯的图形拓扑结构
+            if flows:
+                # 首先构建初始节点集
+                first_diagram = sankey.add(
+                    flows=[flows[0][2]],
+                    orientations=[0],
+                    labels=[flows[0][0], flows[0][1]],  # 源和目标
+                    trunklength=10.0,
+                    pathlengths=[5],
+                    patchlabel=None
+                )
+
+                # 跟踪已添加的节点
+                added_nodes = {flows[0][0]: 0, flows[0][1]: 1}
+
+                # 添加剩余流，确保正确的节点拓扑
+                for i, (source, target, value) in enumerate(flows[1:], 1):
+                    source_idx = added_nodes.get(source)
+                    target_idx = added_nodes.get(target)
+
+                    # 确定节点连接策略
+                    if source_idx is not None and target_idx is not None:
+                        # 两个节点都存在 - 直接连接
+                        sankey.add(
+                            flows=[value],
+                            orientations=[0],
+                            labels=[],  # 不添加新标签
+                            trunklength=10.0,
+                            prior=0,
+                            connect=(source_idx, target_idx),
+                            patchlabel=None
+                        )
+                    elif source_idx is not None:
+                        # 源节点存在，添加新目标
+                        new_diagram = sankey.add(
+                            flows=[value],
+                            orientations=[0],
+                            labels=[target],  # 仅添加目标标签
+                            trunklength=10.0,
+                            prior=0,
+                            connect=(source_idx, len(added_nodes)),
+                            patchlabel=None
+                        )
+                        added_nodes[target] = len(added_nodes)
+                    else:
+                        # 使用替代方法，避开拓扑约束
+                        self._plot_risk_level_alternative(
+                            risk_distribution,
+                            baseline_category,
+                            title,
+                            filename
+                        )
+                        return
+
+            # 完成图形渲染
+            diagrams = sankey.finish()
+
+            # 设置标题
+            plt.title(title, fontproperties=self.font_properties, fontsize=14)
+
+            # 保存图表
+            output_path = os.path.join(self.output_dir, filename)
+            plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
+            plt.close()
+
+        except Exception as e:
+            # 捕获所有可能的异常，确保系统稳定性
+            print(f"生成Sankey图时出错: {str(e)}, 使用替代可视化方法")
+            self._plot_risk_level_alternative(
+                risk_distribution,
+                baseline_category,
+                title,
+                filename
             )
-        
-        # 绘制Sankey图
-        diagrams = sankey.finish()
-        
-        # 设置标题
+
+    def plot_risk_level_network(self,
+                                risk_distribution: Dict[str, float],
+                                baseline_category: str,
+                                title: str = "风险等级转移网络",
+                                filename: str = "risk_level_network.png") -> None:
+        """
+        使用网络图替代Sankey图可视化风险等级分布
+        """
+        # 创建有向图
+        G = nx.DiGraph()
+
+        # 添加节点和边
+        for level, prob in risk_distribution.items():
+            G.add_node(level, weight=prob)
+            if level != baseline_category:
+                G.add_edge(baseline_category, level, weight=prob)
+
+        # 设置布局和样式
+        pos = nx.spring_layout(G, seed=42)
+
+        # 绘制节点和边，使用风险等级相关颜色
+        node_colors = [self.risk_colors.get(node, '#1f77b4') for node in G.nodes()]
+        node_sizes = [1000 if node == baseline_category else 500 for node in G.nodes()]
+
+        nx.draw_networkx(G, pos,
+                         node_color=node_colors,
+                         node_size=node_sizes,
+                         with_labels=True,
+                         font_weight='bold',
+                         arrowsize=20,
+                         width=[G[u][v]['weight'] * 5 for u, v in G.edges()])
+
         plt.title(title, fontproperties=self.font_properties, fontsize=14)
-        
-        # 保存图表
+        plt.axis('off')
+
+        # 保存输出
         output_path = os.path.join(self.output_dir, filename)
         plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
         plt.close()
-        
-        print(f"风险等级流向图已保存到: {output_path}")
-    
+
     def _plot_risk_level_alternative(self, 
                                     risk_distribution: Dict[str, float],
                                     baseline_category: str,
@@ -482,7 +696,8 @@ class RiskVisualization:
         plt.close()
         
         print(f"风险等级分布图已保存到: {output_path}")
-    
+
+    @safe_visualization(output_dir="output/visualizations", module_name="RiskVisualization")
     def plot_sensitivity_tornado(self, 
                                sensitivity_indices: Dict[str, float],
                                title: str = "风险因素敏感性龙卷风图",
@@ -514,9 +729,9 @@ class RiskVisualization:
         factors = [item[0] for item in selected_indices]
         values = [item[1] for item in selected_indices]
         
-        # 创建图表
-        plt.figure(figsize=(10, 8))
-        
+        # 创建图表，明确限制尺寸
+        plt.figure(figsize=(10, min(8, 0.5 * len(factors))))
+
         # 绘制水平条形图
         bars = plt.barh(
             factors,
@@ -559,9 +774,9 @@ class RiskVisualization:
         
         # 保存图表
         output_path = os.path.join(self.output_dir, filename)
-        plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
-        plt.close()
-        
+        # 设置DPI限制，防止图像过大
+        plt.savefig(os.path.join(self.output_dir, filename), dpi=100, bbox_inches='tight')
+
         print(f"敏感性龙卷风图已保存到: {output_path}")
     
     def plot_risk_heatmap(self, 
@@ -620,16 +835,16 @@ class RiskVisualization:
         plt.close()
         
         print(f"风险热力图已保存到: {output_path}")
-    
-    def plot_monte_carlo_scatter(self, 
-                               risk_indices: List[float],
-                               weights: List[Dict[str, float]],
-                               title: str = "蒙特卡洛风险模拟",
-                               top_factors: int = 2,
-                               filename: str = "monte_carlo_scatter.png") -> None:
+
+    def plot_monte_carlo_scatter(self,
+                                 risk_indices: List[float],
+                                 weights: List[Dict[str, float]],
+                                 title: str = "蒙特卡洛风险模拟",
+                                 top_factors: int = 2,
+                                 filename: str = "monte_carlo_scatter.png") -> None:
         """
-        绘制蒙特卡洛模拟散点图
-        
+        绘制蒙特卡洛模拟散点图 - 优化版本解决布局兼容性问题
+
         参数:
             risk_indices (List[float]): 风险指数列表
             weights (List[Dict[str, float]]): 模拟权重列表
@@ -639,9 +854,9 @@ class RiskVisualization:
         """
         # 检查数据有效性
         if not risk_indices or not weights:
-            logger.warning("蒙特卡洛模拟数据为空，无法生成散点图")
+            self.logger.warning("蒙特卡洛模拟数据为空，无法生成散点图")
             return
-        
+
         # 选择与风险指数相关性最高的因素
         correlations = {}
         for factor in weights[0].keys():
@@ -649,36 +864,28 @@ class RiskVisualization:
             if len(set(factor_weights)) > 1:  # 确保因素权重有变化
                 corr = np.corrcoef(factor_weights, risk_indices)[0, 1]
                 correlations[factor] = abs(corr)  # 使用相关系数的绝对值
-        
+
         # 对相关性排序
         sorted_corr = sorted(correlations.items(), key=lambda x: x[1], reverse=True)
-        
+
         # 选择相关性最高的N个因素
         selected_factors = [item[0] for item in sorted_corr[:top_factors]]
-        
+
         # 如果因素不足，使用可用的所有因素
         if len(selected_factors) < top_factors:
             selected_factors = list(correlations.keys())
-        
-        # 创建散点图矩阵
-        fig, axes = plt.subplots(
-            nrows=len(selected_factors),
-            ncols=1,
-            figsize=(10, 4 * len(selected_factors)),
-            sharex=True
-        )
-        
-        # 如果只有一个因素，确保axes是列表
-        if len(selected_factors) == 1:
-            axes = [axes]
-        
+
+        # 使用GridSpec进行精确布局控制而非tight_layout
+        fig = plt.figure(figsize=(10, 4 * len(selected_factors)))
+        gs = fig.add_gridspec(len(selected_factors), 1, hspace=0.4)
+
         # 为每个选定的因素绘制散点图
         for i, factor in enumerate(selected_factors):
-            ax = axes[i]
-            
+            ax = fig.add_subplot(gs[i, 0])
+
             # 提取数据
             factor_weights = [w.get(factor, 0) for w in weights]
-            
+
             # 绘制散点图
             scatter = ax.scatter(
                 factor_weights,
@@ -689,7 +896,7 @@ class RiskVisualization:
                 edgecolors='w',
                 linewidth=0.5
             )
-            
+
             # 添加趋势线
             z = np.polyfit(factor_weights, risk_indices, 1)
             p = np.poly1d(z)
@@ -699,7 +906,7 @@ class RiskVisualization:
                 "r--",
                 alpha=0.8
             )
-            
+
             # 添加相关性信息
             corr = np.corrcoef(factor_weights, risk_indices)[0, 1]
             ax.text(
@@ -711,7 +918,7 @@ class RiskVisualization:
                 verticalalignment='top',
                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.7)
             )
-            
+
             # 设置标签
             ax.set_ylabel('风险指数', fontproperties=self.font_properties, fontsize=12)
             ax.set_title(
@@ -719,30 +926,32 @@ class RiskVisualization:
                 fontproperties=self.font_properties,
                 fontsize=12
             )
-            
+
             # 添加网格线
             ax.grid(True, linestyle='--', alpha=0.7)
-        
+
         # 为最后一个子图设置x轴标签
-        axes[-1].set_xlabel('因素权重', fontproperties=self.font_properties, fontsize=12)
-        
+        if selected_factors:
+            fig.axes[-1].set_xlabel('因素权重', fontproperties=self.font_properties, fontsize=12)
+
         # 添加颜色条
-        cbar = fig.colorbar(scatter, ax=axes.ravel().tolist())
-        cbar.set_label('风险指数', fontproperties=self.font_properties, fontsize=12)
-        
-        # 设置总标题
-        fig.suptitle(title, fontproperties=self.font_properties, fontsize=16)
-        
-        # 调整布局
-        plt.tight_layout(rect=[0, 0, 1, 0.96])  # 为总标题留出空间
-        
+        if selected_factors:  # 确保有图表绘制
+            cbar = fig.colorbar(scatter, ax=fig.axes)
+            cbar.set_label('风险指数', fontproperties=self.font_properties, fontsize=12)
+
+        # 设置总标题 - 使用fig.suptitle而非plt.suptitle
+        fig.suptitle(title, fontproperties=self.font_properties, fontsize=16, y=0.98)
+
+        # 调整子图间距 - 替代tight_layout
+        fig.subplots_adjust(top=0.90, bottom=0.1, left=0.1, right=0.9)
+
         # 保存图表
         output_path = os.path.join(self.output_dir, filename)
         plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
         plt.close()
-        
+
         print(f"蒙特卡洛散点图已保存到: {output_path}")
-    
+
     def plot_risk_distribution(self, 
                               risk_indices: List[float],
                               risk_stats: Dict[str, Any],

@@ -462,7 +462,11 @@ def perform_enhanced_fuzzy_evaluation(
             logging.info("执行敏感性分析...")
 
             # 单因素敏感性分析
-            sensitivity_results = fuzzy_evaluator.perform_sensitivity_analysis(
+            #sensitivity_results = fuzzy_evaluator.perform_sensitivity_analysis(
+            #    factor_weights=significant_factors,
+            #    expert_scores=expert_scores,
+            #)
+            sensitivity_results = fuzzy_evaluator.enhanced_sensitivity_analysis(
                 factor_weights=significant_factors,
                 expert_scores=expert_scores,
             )
@@ -536,10 +540,21 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
     )
 
     # 绘制风险等级变化Sankey图
-    visualizer.plot_risk_level_sankey(
+    #visualizer.plot_risk_level_sankey(
+    #    threshold_impact["risk_distribution"],
+    #    threshold_impact["baseline_category"]
+    #)
+
+    visualizer.plot_risk_level_transition(
         threshold_impact["risk_distribution"],
         threshold_impact["baseline_category"]
     )
+
+    visualizer.plot_risk_level_network(
+        threshold_impact["risk_distribution"],
+        threshold_impact["baseline_category"]
+    )
+
 
     # 绘制蒙特卡洛模拟散点图
     visualizer.plot_monte_carlo_scatter(
@@ -882,7 +897,9 @@ def main():
         print_evaluation_summary(evaluation_results)
 
         # 可视化结果
-        visualize_results_(criteria_weights, significant_factors, np.array(evaluation_results["integrated_result"]))
+        sorted_criteria_weights = dict(sorted(criteria_weights.items(), key=lambda item: item[1], reverse=True))
+        visualize_results_(sorted_criteria_weights, significant_factors,
+                           np.array(evaluation_results["integrated_result"]))
 
         # 导出评价结果
         export_evaluation_results(evaluation_results, output_dir)
