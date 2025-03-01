@@ -6,23 +6,23 @@
 支持AHP和增强型FCE方法的集成风险分析系统
 """
 
-import os
+import argparse
 import json
 import logging
-import argparse
+import os
+from datetime import datetime
+from typing import Dict, Any
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime
 from tabulate import tabulate
 from tqdm import tqdm
 
 # 导入自定义模块
-from ahp_processor import AHPProcessor, ConsistencyChecker, MatrixCorrector
-from excel_handler import ExcelDataHandler, ExcelExporter
+from ahp_processor import AHPProcessor
 from enhanced_fuzzy_evaluator import EnhancedFuzzyEvaluator
-from visualizer import Visualizer
+from excel_handler import ExcelDataHandler, ExcelExporter
 
 
 # 配置日志

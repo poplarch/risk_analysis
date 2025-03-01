@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 import copy
-from typing import List, Dict, Tuple, Optional, Callable, Any, Union
 import logging
 import os
+from typing import List, Dict, Tuple, Optional, Callable, Any
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.font_manager import FontProperties
+
 
 class EnhancedFuzzyEvaluator:
     """
@@ -583,34 +585,34 @@ class EnhancedFuzzyEvaluator:
         """
         配置适用于当前操作系统的中文字体
 
-        返回:
+        Returns:
             FontProperties: 中文字体属性对象
-            bool: 是否已全局配置字体
         """
-        import platform
-        import matplotlib.font_manager as fm
-        from matplotlib.font_manager import FontProperties
 
-        system = platform.system()
+        # 正确导入platform模块并立即使用，避免变量覆盖
+        import platform as sys_platform
+        system_name = sys_platform.system()
+
         font_prop = None
-        global_config = False
 
         try:
-            if system == 'Windows':
+            # 基于操作系统类型实施不同的字体策略
+            if system_name == 'Windows':
                 # Windows系统使用微软雅黑或黑体
                 font_paths = [
                     r'C:\Windows\Fonts\msyh.ttc',  # 微软雅黑
-                    r'C:\Windows\Fonts\simhei.ttf'  # 黑体
+                    r'C:\Windows\Fonts\simhei.ttf',  # 黑体
+                    r'C:\Windows\Fonts\simsun.ttc'  # 宋体
                 ]
 
                 for path in font_paths:
                     if os.path.exists(path):
                         font_prop = FontProperties(fname=path)
-                        plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei']
-                        global_config = True
+                        plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'SimSun']
+                        logging.debug(f"使用Windows字体: {path}")
                         break
 
-            elif system == 'Darwin':  # macOS
+            elif system_name == 'Darwin':  # macOS
                 # macOS系统使用苹方或华文黑体
                 font_paths = [
                     '/System/Library/Fonts/PingFang.ttc',
@@ -622,24 +624,45 @@ class EnhancedFuzzyEvaluator:
                     if os.path.exists(path):
                         font_prop = FontProperties(fname=path)
                         plt.rcParams['font.sans-serif'] = ['PingFang SC', 'Hiragino Sans GB', 'STHeiti']
-                        global_config = True
+                        logging.debug(f"使用macOS字体: {path}")
                         break
 
             else:  # Linux和其他系统
                 # 尝试使用常见的中文字体
-                chinese_fonts = ['WenQuanYi Micro Hei', 'Droid Sans Fallback', 'Noto Sans CJK SC', 'SimSun', 'SimHei']
+                import matplotlib as mpl
+                chinese_fonts = [
+                    'WenQuanYi Micro Hei', 'Droid Sans Fallback', 'Noto Sans CJK SC',
+                    'SimSun', 'SimHei', 'WenQuanYi Zen Hei', 'AR PL UMing CN'
+                ]
 
                 # 检测系统中是否有这些字体
-                available_fonts = fm.findSystemFonts(fontpaths=None)
+                available_fonts = mpl.font_manager.findSystemFonts(fontpaths=None)
                 for font in available_fonts:
-                    font_name = fm.FontProperties(fname=font).get_name()
-                    if any(cf.lower() in font_name.lower() for cf in chinese_fonts):
-                        font_prop = FontProperties(fname=font)
-                        plt.rcParams['font.sans-serif'] = [font_name]
-                        global_config = True
-                        break
+                    try:
+                        temp_prop = FontProperties(fname=font)
+                        font_name = temp_prop.get_name()
+                        if any(cf.lower() in font_name.lower() for cf in chinese_fonts):
+                            font_prop = FontProperties(fname=font)
+                            plt.rcParams['font.sans-serif'] = [font_name]
+                            logging.debug(f"使用Linux字体: {font}")
+                            break
+                    except Exception as e:
+                        continue
 
-            # 如果未找到合适字体，使用matplotlib的回退机制
+            # 如果未找到合适字体，尝试通过字体名称设置
+            if font_prop is None:
+                # 尝试使用系统可用的字体名称
+                for font_name in ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei', 'Noto Sans CJK SC']:
+                    try:
+                        plt.rcParams['font.sans-serif'] = [font_name] + plt.rcParams['font.sans-serif']
+                        # 尝试创建字体属性
+                        font_prop = FontProperties(family=font_name)
+                        logging.debug(f"尝试使用字体名称: {font_name}")
+                        break
+                    except:
+                        continue
+
+            # 最后的回退选项
             if font_prop is None:
                 plt.rcParams['font.sans-serif'] = ['DejaVu Sans'] + plt.rcParams['font.sans-serif']
                 logging.warning("未找到合适的中文字体，使用系统默认字体，中文显示可能不正确")
@@ -648,13 +671,14 @@ class EnhancedFuzzyEvaluator:
             # 正确显示负号
             plt.rcParams['axes.unicode_minus'] = False
 
-            return font_prop, global_config
+            return font_prop
 
         except Exception as e:
-            logging.error(f"配置中文字体出错: {str(e)}")
+            # 记录详细的错误信息以便调试
+            logging.error(f"配置中文字体出错: {str(e)}", exc_info=True)
             plt.rcParams['font.sans-serif'] = ['DejaVu Sans'] + plt.rcParams['font.sans-serif']
             plt.rcParams['axes.unicode_minus'] = False
-            return FontProperties(), False
+            return FontProperties()
 
     def visualize_membership_functions(self,
                                        use_dynamic: bool = True,

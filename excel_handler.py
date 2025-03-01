@@ -5,17 +5,21 @@ Excel数据处理模块
 支持专家判断矩阵、评分数据、权重信息的处理
 """
 
+import logging
 import os
 import time
-import pandas as pd
+from fractions import Fraction
+from typing import List, Dict, Tuple, Optional, Any
+
+import matplotlib.pyplot as plt
 import numpy as np
-import logging
+import pandas as pd
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 from openpyxl.utils import get_column_letter
-from typing import List, Dict, Tuple, Optional, Any, Union
-from fractions import Fraction
-import matplotlib.pyplot as plt
-import seaborn as sns
+
+from enhanced_fuzzy_evaluator import EnhancedFuzzyEvaluator
+import tempfile
+from openpyxl.drawing.image import Image
 
 
 class ExcelExporter:
@@ -348,7 +352,11 @@ class ExcelExporter:
             writer (pd.ExcelWriter): Excel写入器
             weights (Dict[str, float]): 权重字典
         """
-        # 创建一个新的工作表
+
+        # 配置中文字体
+        font_prop = EnhancedFuzzyEvaluator.configure_chinese_font()
+
+        # 创建工作表
         workbook = writer.book
         sheet_name = "权重可视化"
 
@@ -359,48 +367,87 @@ class ExcelExporter:
 
         worksheet = workbook.create_sheet(sheet_name)
 
-        # 创建权重条形图
-        fig, ax = plt.figure(figsize=(10, 6)), plt.axes()
-
-        # 对权重进行排序
-        sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=True)
-        factors = [item[0] for item in sorted_weights]
-        values = [item[1] for item in sorted_weights]
-
-        # 绘制条形图
-        bars = ax.barh(factors, values, color='skyblue')
-
-        # 添加数据标签
-        for bar in bars:
-            width = bar.get_width()
-            ax.text(width + 0.01, bar.get_y() + bar.get_height() / 2, f'{width:.4f}',
-                    va='center')
-
-        # 设置图表标题和标签
-        ax.set_title('准则权重')
-        ax.set_xlabel('权重值')
-        ax.set_ylabel('准则')
-
-        # 调整布局
-        plt.tight_layout()
-
-        # 保存图表到临时文件
-        temp_file = 'temp_weights_chart.png'
-        plt.savefig(temp_file, dpi=300)
-        plt.close()
-
-        # 将图表插入到Excel
-        from openpyxl.drawing.image import Image
-        img = Image(temp_file)
-        img.width = 600
-        img.height = 400
-        worksheet.add_image(img, 'A1')
-
-        # 删除临时文件
         try:
-            os.remove(temp_file)
-        except:
-            pass
+            # 创建图表
+            fig, ax = plt.subplots(figsize=(10, 6))
+
+            # 对权重进行排序
+            sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=True)
+            factors = [item[0] for item in sorted_weights]
+            values = [item[1] for item in sorted_weights]
+
+            # 绘制条形图
+            bars = ax.barh(factors, values, color='skyblue')
+
+            # 添加数据标签
+            for bar in bars:
+                width = bar.get_width()
+                ax.text(width + 0.01, bar.get_y() + bar.get_height() / 2, f'{width:.4f}',
+                        va='center', fontproperties=font_prop)
+
+            # 设置图表标题和标签
+            ax.set_title('准则权重', fontproperties=font_prop, fontsize=14)
+            ax.set_xlabel('权重值', fontproperties=font_prop, fontsize=12)
+            ax.set_ylabel('准则', fontproperties=font_prop, fontsize=12)
+
+            # 设置刻度标签字体
+            for label in ax.get_xticklabels():
+                label.set_fontproperties(font_prop)
+
+            for label in ax.get_yticklabels():
+                label.set_fontproperties(font_prop)
+
+            # 调整布局
+            plt.tight_layout()
+
+            # 使用安全的临时文件方法
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                temp_path = tmp.name
+                logging.info(f"创建临时文件: {temp_path}")
+
+                # 先关闭文件，避免在Windows系统上的访问冲突
+                tmp.close()
+
+                # 保存图表到临时文件
+                plt.savefig(temp_path, dpi=300, bbox_inches='tight')
+                plt.close(fig)
+
+                # 验证文件是否创建成功
+                file_size = os.path.getsize(temp_path)
+                logging.info(f"临时文件已创建，大小: {file_size} 字节")
+
+                # 将图表插入到Excel
+                img = Image(temp_path)
+                img.width = 600
+                img.height = 400
+                worksheet.add_image(img, 'A1')
+
+                # 清理临时文件
+                try:
+                    os.remove(temp_path)
+                    logging.info(f"临时文件已清理: {temp_path}")
+                except Exception as e:
+                    logging.warning(f"清理临时文件失败: {str(e)}")
+
+        except Exception as e:
+            # 记录详细错误并添加错误信息到工作表
+            logging.error(f"生成权重可视化时出错: {str(e)}", exc_info=True)
+            worksheet.cell(row=1, column=1, value=f"图表生成错误: {str(e)}")
+
+            # 尝试创建简单文本表格作为备选方案
+            try:
+                row = 3
+                worksheet.cell(row=1, column=1, value="权重数据表格 (可视化生成失败)")
+                worksheet.cell(row=2, column=1, value="准则")
+                worksheet.cell(row=2, column=2, value="权重值")
+
+                # 添加权重数据
+                for factor, value in sorted(weights.items(), key=lambda x: x[1], reverse=True):
+                    worksheet.cell(row=row, column=1, value=factor)
+                    worksheet.cell(row=row, column=2, value=value)
+                    row += 1
+            except Exception as text_err:
+                logging.error(f"创建备选表格失败: {str(text_err)}")
 
     def _add_fuzzy_visualization(self, writer: pd.ExcelWriter, fuzzy_results: Dict[str, Any]) -> None:
         """
@@ -410,12 +457,14 @@ class ExcelExporter:
             writer (pd.ExcelWriter): Excel写入器
             fuzzy_results (Dict[str, Any]): 模糊评价结果
         """
-        # 创建一个新的工作表
+        # 配置中文字体
+        font_prop = EnhancedFuzzyEvaluator.configure_chinese_font()
+
+        # 创建工作表
         workbook = writer.book
         sheet_name = "评价可视化"
 
         if sheet_name in workbook.sheetnames:
-            # 如果工作表已存在，删除它
             idx = workbook.sheetnames.index(sheet_name)
             workbook.remove(workbook.worksheets[idx])
 
@@ -423,121 +472,65 @@ class ExcelExporter:
 
         # 创建风险等级条形图
         if "integrated_result" in fuzzy_results:
-            fig, ax = plt.figure(figsize=(10, 6)), plt.axes()
-
-            result = fuzzy_results["integrated_result"]
-            levels = ["VL", "L", "M", "H", "VH"]
-
-            # 绘制条形图
-            bars = ax.bar(levels, result, color=['blue', 'green', 'yellow', 'orange', 'red'])
-
-            # 添加数据标签
-            for bar in bars:
-                height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width() / 2, height + 0.01, f'{height:.4f}',
-                        ha='center')
-
-            # 设置图表标题和标签
-            ax.set_title('风险等级隶属度分布')
-            ax.set_xlabel('风险等级')
-            ax.set_ylabel('隶属度')
-
-            # 调整布局
-            plt.tight_layout()
-
-            # 保存图表到临时文件
-            temp_file = 'temp_fuzzy_chart.png'
-            plt.savefig(temp_file, dpi=300)
-            plt.close()
-
-            # 将图表插入到Excel
-            from openpyxl.drawing.image import Image
-            img = Image(temp_file)
-            img.width = 600
-            img.height = 400
-            worksheet.add_image(img, 'A1')
-
-            # 删除临时文件
             try:
-                os.remove(temp_file)
-            except:
-                pass
+                # 创建图表
+                fig, ax = plt.subplots(figsize=(10, 6))
 
-        # 如果有敏感性分析结果，添加敏感性图表
-        if "sensitivity_analysis" in fuzzy_results:
-            sensitivity = fuzzy_results["sensitivity_analysis"]
-
-            if "sensitivity_indices" in sensitivity:
-                # 创建一个新的工作表
-                sheet_name = "敏感性可视化"
-
-                if sheet_name in workbook.sheetnames:
-                    # 如果工作表已存在，删除它
-                    idx = workbook.sheetnames.index(sheet_name)
-                    workbook.remove(workbook.worksheets[idx])
-
-                worksheet = workbook.create_sheet(sheet_name)
-
-                # 创建敏感性条形图
-                fig, ax = plt.figure(figsize=(10, 6)), plt.axes()
-
-                # 排序敏感性指标
-                sorted_indices = sorted(
-                    sensitivity["sensitivity_indices"].items(),
-                    key=lambda x: abs(x[1]),
-                    reverse=True
-                )
-
-                # 只显示前10个因素
-                if len(sorted_indices) > 10:
-                    sorted_indices = sorted_indices[:10]
-
-                factors = [item[0] for item in sorted_indices]
-                values = [item[1] for item in sorted_indices]
-
-                # 为正负值设置不同颜色
-                colors = ['blue' if v >= 0 else 'red' for v in values]
+                result = fuzzy_results["integrated_result"]
+                levels = ["VL", "L", "M", "H", "VH"]
 
                 # 绘制条形图
-                bars = ax.barh(factors, values, color=colors)
+                bars = ax.bar(levels, result, color=['blue', 'green', 'yellow', 'orange', 'red'])
 
                 # 添加数据标签
                 for bar in bars:
-                    width = bar.get_width()
-                    ax.text(width + 0.01 if width >= 0 else width - 0.05,
-                            bar.get_y() + bar.get_height() / 2,
-                            f'{width:.4f}',
-                            va='center')
+                    height = bar.get_height()
+                    ax.text(bar.get_x() + bar.get_width() / 2, height + 0.01, f'{height:.4f}',
+                            ha='center', fontproperties=font_prop)
 
                 # 设置图表标题和标签
-                ax.set_title('风险因素敏感性指标')
-                ax.set_xlabel('敏感性指标')
-                ax.set_ylabel('风险因素')
+                ax.set_title('风险等级隶属度分布', fontproperties=font_prop, fontsize=14)
+                ax.set_xlabel('风险等级', fontproperties=font_prop, fontsize=12)
+                ax.set_ylabel('隶属度', fontproperties=font_prop, fontsize=12)
 
-                # 添加参考线
-                ax.axvline(x=0, color='black', linestyle='-', alpha=0.3)
+                # 设置刻度标签字体
+                for label in ax.get_xticklabels():
+                    label.set_fontproperties(font_prop)
+
+                for label in ax.get_yticklabels():
+                    label.set_fontproperties(font_prop)
 
                 # 调整布局
-                plt.tight_layout()
+                plt.tight_layout(pad=3.0)
 
-                # 保存图表到临时文件
-                temp_file = 'temp_sensitivity_chart.png'
-                plt.savefig(temp_file, dpi=300)
-                plt.close()
+                # 使用安全的临时文件方法
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                    temp_path = tmp.name
+                    logging.info(f"创建临时文件: {temp_path}")
 
-                # 将图表插入到Excel
-                from openpyxl.drawing.image import Image
-                img = Image(temp_file)
-                img.width = 600
-                img.height = 400
-                worksheet.add_image(img, 'A1')
+                    # 先关闭文件
+                    tmp.close()
 
-                # 删除临时文件
-                try:
-                    os.remove(temp_file)
-                except:
-                    pass
+                    # 保存图表到临时文件
+                    plt.savefig(temp_path, dpi=300, bbox_inches='tight')
+                    plt.close(fig)
 
+                    # 将图表插入到Excel
+                    img = Image(temp_path)
+                    img.width = 600
+                    img.height = 400
+                    worksheet.add_image(img, 'A1')
+
+                    # 清理临时文件
+                    try:
+                        os.remove(temp_path)
+                        logging.info(f"临时文件已清理: {temp_path}")
+                    except Exception as e:
+                        logging.warning(f"清理临时文件失败: {str(e)}")
+
+            except Exception as e:
+                logging.error(f"生成模糊评价可视化时出错: {str(e)}", exc_info=True)
+                worksheet.cell(row=1, column=1, value=f"图表生成错误: {str(e)}")
 
 class ExcelDataHandler:
     """Excel文件数据处理器，负责读取AHP和模糊评价数据"""
@@ -1084,7 +1077,6 @@ class ExcelDataHandler:
         sum_cell.number_format = '0.00'
 
         # 设置条件格式，如果总和不为1则显示红色
-        from openpyxl.formatting.rule import CellIsRule
         red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
 
         # 添加权重验证说明
