@@ -473,6 +473,78 @@ class EnhancedFuzzyEvaluator:
 
         return normalized_indices
 
+    @staticmethod
+    def normalize_sensitivity_weights(
+            factor_weights: Dict[str, float],
+            modified_factor: str,
+            new_weight: float,
+            epsilon: float = 1e-10
+    ) -> Dict[str, float]:
+        """
+        计算单因素扰动后的归一化权重分布 (独立工具函数)
+
+        参数:
+            factor_weights: 原始风险因素权重字典
+            modified_factor: 被修改的因素标识符
+            new_weight: 修改后的权重值
+            epsilon: 数值稳定性阈值
+
+        返回:
+            Dict[str, float]: 保持比例关系的归一化权重分布
+        """
+        # 创建权重的字典副本
+        if isinstance(factor_weights, dict):
+            modified_weights = dict(factor_weights)
+        else:
+            # 处理非字典输入，尝试转换为字典
+            try:
+                modified_weights = dict(factor_weights)
+            except (TypeError, ValueError):
+                print(f"警告: 无法将输入转换为字典，返回原始输入")
+                return factor_weights
+
+        # 验证输入参数
+        if modified_factor not in modified_weights:
+            print(f"警告: 修改的因素'{modified_factor}'未在权重字典中找到")
+            return modified_weights
+
+        # 应用权重修改，确保数值稳定性
+        modified_weights[modified_factor] = max(epsilon, new_weight)
+
+        # 计算权重调整因子
+        original_sum = sum(modified_weights.values())
+        if original_sum <= epsilon:
+            # 处理数值退化情况
+            n_factors = len(modified_weights)
+            return {k: 1.0 / n_factors for k in modified_weights}
+
+        # 计算比例归一化的调整因子
+        non_modified_sum = sum(v for k, v in modified_weights.items() if k != modified_factor)
+        target_remainder = max(0.0, 1.0 - modified_weights[modified_factor])
+
+        # 调整非修改因素的权重
+        if non_modified_sum > epsilon and target_remainder > epsilon:
+            # 标准比例调整
+            scale = target_remainder / non_modified_sum
+            for k in modified_weights:
+                if k != modified_factor:
+                    modified_weights[k] *= scale
+        else:
+            # 边缘情况：平均分配剩余权重
+            n_other = len(modified_weights) - 1
+            if n_other > 0 and target_remainder > epsilon:
+                for k in modified_weights:
+                    if k != modified_factor:
+                        modified_weights[k] = target_remainder / n_other
+
+        # 最终归一化
+        weight_sum = sum(modified_weights.values())
+        if weight_sum > epsilon:
+            return {k: v / weight_sum for k, v in modified_weights.items()}
+        else:
+            # 极端情况处理
+            return {k: 1.0 / len(modified_weights) for k in modified_weights}
+
     def calculate_normalized_weights(
             factor_weights: Dict[str, float],
             modified_factor: str,
@@ -553,6 +625,7 @@ class EnhancedFuzzyEvaluator:
         # Calculate baseline risk index
         baseline_result = self.evaluate(expert_scores, factor_weights, use_dynamic)
         baseline_risk_index = baseline_result["risk_index"]
+        ordered_factors = list(factor_weights.keys())
 
         # Initialize result containers
         sensitivity_indices = {}
@@ -561,8 +634,11 @@ class EnhancedFuzzyEvaluator:
         # Apply log transformation to prevent numerical underflow
         epsilon = 1e-10  # Small constant to prevent logarithm of zero
 
+        # Create variation range once - fix for the undefined variable
+        variation_percentages = np.linspace(-variation_range, variation_range, steps + 1)
+
         # For each factor, calculate sensitivity with robust numerical approach
-        for factor in baseline_result["ordered_factors"]:
+        for factor in ordered_factors:
             risk_indices = []
             original_weight = factor_weights[factor]
 
@@ -571,12 +647,13 @@ class EnhancedFuzzyEvaluator:
                 sensitivity_indices[factor] = 0.0
                 continue
 
-            for variation in np.linspace(-variation_range, variation_range, steps + 1):
+            # Iterate through variations
+            for variation in variation_percentages:
                 # Calculate new weight with bounds checking
                 new_weight = max(epsilon, original_weight * (1 + variation))
 
                 # Create modified weights with normalization
-                modified_weights = self.calculate_normalized_weights(factor_weights, factor, new_weight)
+                modified_weights = self.normalize_sensitivity_weights(factor_weights, factor, new_weight)
 
                 # Calculate risk with modified weights
                 result = self.evaluate(expert_scores, modified_weights, use_dynamic)
@@ -595,15 +672,23 @@ class EnhancedFuzzyEvaluator:
 
                 # Apply bounded normalization to prevent overflow
                 sensitivity = np.clip(sensitivity, -1.0, 1.0)
-            except Exception:
+            except Exception as e:
+                print(f"计算因素 '{factor}' 敏感性时出错: {str(e)}")
                 sensitivity = 0.0
 
             sensitivity_indices[factor] = sensitivity
-            variation_curves[factor] = {"variations": variations, "risk_indices": risk_indices}
+            # Store both percentages and calculated indices - fixed line
+            variation_curves[factor] = {
+                "variations": variation_percentages.tolist(),  # Convert to list for JSON serialization
+                "risk_indices": risk_indices
+            }
 
         return {
             "sensitivity_indices": sensitivity_indices,
             "variation_curves": variation_curves,
+            "ranked_factors": sorted(sensitivity_indices.keys(),
+                                     key=lambda x: abs(sensitivity_indices[x]),
+                                     reverse=True),
             "baseline_result": baseline_result
         }
 
