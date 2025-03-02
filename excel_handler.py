@@ -378,7 +378,7 @@ class ExcelExporter:
             fig, ax = plt.subplots(figsize=(10, 6))
 
             # 对权重进行排序
-            sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=True)
+            sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=False)
             factors = [item[0] for item in sorted_weights]
             values = [item[1] for item in sorted_weights]
 
@@ -393,8 +393,8 @@ class ExcelExporter:
 
             # 设置图表标题和标签
             ax.set_title('准则权重', fontproperties=font_prop, fontsize=14)
-            ax.set_xlabel('权重值', fontproperties=font_prop, fontsize=12)
-            ax.set_ylabel('准则', fontproperties=font_prop, fontsize=12)
+            ax.set_xlabel('权重值', fontproperties=font_prop, fontsize=14)
+            ax.set_ylabel('准则', fontproperties=font_prop, fontsize=14)
 
             # 设置刻度标签字体
             for label in ax.get_xticklabels():
@@ -402,6 +402,10 @@ class ExcelExporter:
 
             for label in ax.get_yticklabels():
                 label.set_fontproperties(font_prop)
+
+            # 获取最大权重值并动态设置 X 轴范围
+            max_value = max(values)
+            ax.set_xlim(0, max_value + 0.1)  # 在最大值上增加 0.1 的余量，确保标签有足够空间
 
             # 调整布局
             plt.tight_layout()
