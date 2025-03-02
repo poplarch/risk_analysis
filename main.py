@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 # TODO: 层次分析法支持4层模型，包括目标层、准则层、指标层、方案层（可选）
 # TODO: 增加GUI支持、多层次模糊综合评价法
+# BUG: temp路径下的图片，在Excel保存后自动清理
+#       日志现在无法写入
+#        龙卷风图太大无法生成
 """
 风险分析工具主程序
 支持AHP和增强型FCE方法的集成风险分析系统
@@ -52,6 +55,7 @@ def setup_logging(log_dir: str = "logs", log_level: int = logging.INFO) -> None:
     # 设置第三方库的日志级别
     logging.getLogger("matplotlib").setLevel(logging.WARNING)
     logging.getLogger("PIL").setLevel(logging.WARNING)
+
 
 def create_default_config() -> Dict:
     """
@@ -203,6 +207,7 @@ def validate_config(config: Dict) -> Dict:
     logging.info("Configuration validated successfully")
     return config
 
+
 def load_config(config_path: str) -> Dict:
     """
     Load and validate configuration
@@ -229,6 +234,7 @@ def load_config(config_path: str) -> Dict:
     # Validate and normalize configuration
     config = validate_config(config)
     return config
+
 
 def present_hierarchical_weights(
         criteria_weights: Dict[str, float],
@@ -320,6 +326,8 @@ def display_risk_analysis_matrix(
         floatfmt=".4f",  # Standardize floating-point representation
         showindex=False  # Suppress dataframe index display
     ))
+
+
 def process_ahp_level(
         ahp_processor: AHPProcessor,
         level: str,
@@ -426,14 +434,14 @@ def perform_enhanced_fuzzy_evaluation(
     try:
         # 初始化增强型模糊评价器
         fuzzy_evaluator = EnhancedFuzzyEvaluator(
-            risk_levels = fuzzy_config["risk_levels"],
-            dynamic_enabled = fuzzy_config["use_dynamic_membership"]
+            risk_levels=fuzzy_config["risk_levels"],
+            dynamic_enabled=fuzzy_config["use_dynamic_membership"]
         )
 
         # 读取专家评分数据
         scores_df, fce_expert_weights = excel_handler.read_expert_scores(fuzzy_config["fuzzy_excel"])
         if fce_expert_weights is None:
-            fce_expert_weights = [1.0/scores_df.shape[1]] * scores_df.shape[1]
+            fce_expert_weights = [1.0 / scores_df.shape[1]] * scores_df.shape[1]
 
         # 过滤权重大于阈值的风险因素
         weight_threshold = fuzzy_config.get("weight_threshold", 0.03)
@@ -468,11 +476,11 @@ def perform_enhanced_fuzzy_evaluation(
                 expert_scores=expert_scores,
                 expert_weights=fce_expert_weights,
             )
-            #sensitivity_results = fuzzy_evaluator.enhanced_sensitivity_analysis(
+            # sensitivity_results = fuzzy_evaluator.enhanced_sensitivity_analysis(
             #    factor_weights=significant_factors,
             #    expert_scores=expert_scores,
             #    expert_weights=fce_expert_weights,
-            #)
+            # )
 
             ## 识别最敏感的两个因素进行交叉敏感性分析
             top_factors = sensitivity_results["ranked_factors"][:2]
@@ -499,7 +507,8 @@ def perform_enhanced_fuzzy_evaluation(
         raise
 
 
-def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[str, Any], evaluation_results: Dict[str, Any]) -> None:
+def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[str, Any],
+                       evaluation_results: Dict[str, Any]) -> None:
     fuzzy_result = np.array(evaluation_results["integrated_result"])
     # 创建敏感性分析器
     analyzer = RiskSensitivityAnalyzer(global_weights, fuzzy_result)
@@ -507,17 +516,17 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
     # 执行单因素敏感性分析
     single_factor_results = analyzer.single_factor_sensitivity()
 
-    #top_factors = single_factor_results["ranked_factors"][:2]
+    # top_factors = single_factor_results["ranked_factors"][:2]
     # 执行交叉敏感性分析
-    #cross_factor_results = analyzer.cross_factor_sensitivity(
+    # cross_factor_results = analyzer.cross_factor_sensitivity(
     #    factors=top_factors
-    #)
+    # )
 
     # 执行蒙特卡洛敏感性分析
-    #monte_carlo_results = analyzer.monte_carlo_sensitivity(num_simulations=500)
+    # monte_carlo_results = analyzer.monte_carlo_sensitivity(num_simulations=500)
 
     # 计算风险阈值影响
-    #threshold_impact = analyzer.calculate_threshold_impact()
+    # threshold_impact = analyzer.calculate_threshold_impact()
 
     # 创建可视化器
     visualizer = RiskVisualization(output_dir="output/visualizations")
@@ -536,7 +545,7 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
     visualizer.plot_sensitivity_radar(single_factor_results["sensitivity_indices"])
 
     # 绘制敏感性Tornado图
-    #visualizer.plot_sensitivity_tornado(single_factor_results["sensitivity_indices"])
+    # visualizer.plot_sensitivity_tornado(single_factor_results["sensitivity_indices"])
 
     cross_factor_results = evaluation_results["cross_sensitivity"]
     # 绘制风险影响热力图
@@ -547,35 +556,35 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
     )
 
     # 绘制风险等级变化Sankey图
-    #visualizer.plot_risk_level_sankey(
+    # visualizer.plot_risk_level_sankey(
     #    threshold_impact["risk_distribution"],
     #    threshold_impact["baseline_category"]
-    #)
+    # )
 
-    #visualizer.plot_risk_level_transition(
+    # visualizer.plot_risk_level_transition(
     #    threshold_impact["risk_distribution"],
     #    threshold_impact["baseline_category"]
-    #)
+    # )
 
-    #visualizer.plot_risk_level_network(
+    # visualizer.plot_risk_level_network(
     #    threshold_impact["risk_distribution"],
     #    threshold_impact["baseline_category"]
-    #)
-
+    # )
 
     # 绘制蒙特卡洛模拟散点图
-    #visualizer.plot_monte_carlo_scatter(
+    # visualizer.plot_monte_carlo_scatter(
     #    monte_carlo_results["risk_indices"],
     #    monte_carlo_results["simulation_weights"]
-    #)
+    # )
 
     # 绘制风险分布图
-    #visualizer.plot_risk_distribution(
+    # visualizer.plot_risk_distribution(
     #    monte_carlo_results["risk_indices"],
     #    monte_carlo_results["risk_stats"]
-    #)
+    # )
 
     print("所有图表已生成!")
+
 
 def visualize_results(
         evaluation_results: Dict[str, Any],
@@ -662,6 +671,7 @@ def visualize_results(
     except Exception as e:
         logging.error(f"生成可视化图表出错: {str(e)}", exc_info=True)
         print(f"生成可视化图表出错: {str(e)}")
+
 
 def export_evaluation_results(
         evaluation_results: Dict[str, Any],
@@ -848,7 +858,7 @@ def main():
             logging.info(f"已读取AHP专家权重: {ahp_expert_weights}")
         else:
             expert_count = ahp_settings.get("expert_count", 5)
-            ahp_expert_weights = [1.0/expert_count] * expert_count
+            ahp_expert_weights = [1.0 / expert_count] * expert_count
             logging.warning("读取专家权重失败，将使用均等权重")
 
         # 初始化AHP处理器
@@ -861,11 +871,12 @@ def main():
         }
 
         # 处理每个AHP层级
-        criteria_weights = {} # 一级风险因素局部权重
-        sub_criteria_weights = {} # 二级风险因素局部权重
+        criteria_weights = {}  # 一级风险因素局部权重
+        sub_criteria_weights = {}  # 二级风险因素局部权重
 
         for level in tqdm((ahp_model_level), desc="处理AHP层级"):
-            process_ahp_level(ahp_processor, level, criteria_weights, sub_criteria_weights, f"{output_dir}{ahp_results_prefix}{level}.xlsx")
+            process_ahp_level(ahp_processor, level, criteria_weights, sub_criteria_weights,
+                              f"{output_dir}{ahp_results_prefix}{level}.xlsx")
 
         # 计算全局权重
         global_weights = calculate_global_weights(criteria_weights, sub_criteria_weights)
@@ -873,7 +884,8 @@ def main():
         # 打印权重结果
         print("\n========== 权重分析结果 ==========")
         present_hierarchical_weights(criteria_weights, sub_criteria_weights, global_weights)
-        Visualizer.plot_weights_pie(criteria_weights, title="一级风险因素局部权重", output_path=f"{output_dir}visualizations/criteria_weights_pie.png")
+        Visualizer.plot_weights_pie(criteria_weights, title="一级风险因素局部权重",
+                                    output_path=f"{output_dir}visualizations/criteria_weights_pie.png")
 
         # 执行增强型模糊综合评价
         print("\n========== 模糊综合评价 ==========")
@@ -908,7 +920,7 @@ def main():
         sorted_criteria_weights = dict(sorted(criteria_weights.items(), key=lambda item: item[1], reverse=True))
         visualize_results_(sorted_criteria_weights, significant_factors, evaluation_results)
 
-        #visualize_results(evaluation_results, config, output_dir)
+        # visualize_results(evaluation_results, config, output_dir)
 
         # 导出评价结果
         export_evaluation_results(evaluation_results, output_dir)
@@ -921,6 +933,7 @@ def main():
         return 1
 
     return 0
+
 
 if __name__ == "__main__":
     exit_code = main()

@@ -8,6 +8,7 @@ from fuzzy_evaluator import FuzzyEvaluator
 
 class TestFuzzy(unittest.TestCase):
     """模糊评价模块的单元测试"""
+
     def test_membership_degree(self):
         """测试隶属度计算"""
         evaluator = FuzzyEvaluator()
@@ -33,6 +34,7 @@ class TestFuzzy(unittest.TestCase):
         result2 = evaluator.apply_expert_weights([evaluator.calculate_raw_membership([s]) for s in scores],
                                                  weights2)
         assert not np.array_equal(result1, result2), "Expert weight changes should affect results"
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,24 +1,22 @@
 # risk_visualization.py
 import functools
+import logging
 import os
+import platform
+from typing import Dict, List, Any
 
+import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 import seaborn as sns
-from matplotlib.figure import Figure
 from matplotlib.font_manager import FontProperties
-import matplotlib.patches as mpatches
-from typing import Dict, List, Tuple, Optional, Union, Any
-import platform
-import logging
 
 # 尝试导入Sankey图所需的库
 try:
     from matplotlib.sankey import Sankey
     import matplotlib.patches as patches
     import matplotlib.colors as mcolors
+
     SANKEY_AVAILABLE = True
 except ImportError:
     SANKEY_AVAILABLE = False
@@ -86,9 +84,10 @@ def safe_visualization(output_dir, module_name):
 
     return decorator
 
+
 class RiskVisualization:
     """风险可视化类，用于生成风险分析的各种可视化图表"""
-    
+
     def __init__(self, output_dir: str = "output/visualizations",
                  dpi: int = 300,
                  risk_levels: List[str] = None):
@@ -103,23 +102,23 @@ class RiskVisualization:
         self.output_dir = output_dir
         self.dpi = dpi
         self.risk_levels = risk_levels or ["VL", "L", "M", "H", "VH"]
-        
+
         # 创建输出目录
         os.makedirs(output_dir, exist_ok=True)
-        
+
         # 设置中文字体
         self.font_properties = self._get_chinese_font()
         self._configure_chinese_fonts()
-        
+
         # 设置风险等级颜色映射
         self.risk_colors = {
             "VL": "#1a9850",  # 绿色
-            "L": "#91cf60",    # 浅绿色
-            "M": "#ffffbf",    # 黄色
-            "H": "#fc8d59",    # 橙色
-            "VH": "#d73027"    # 红色
+            "L": "#91cf60",  # 浅绿色
+            "M": "#ffffbf",  # 黄色
+            "H": "#fc8d59",  # 橙色
+            "VH": "#d73027"  # 红色
         }
-    
+
     def _get_chinese_font(self) -> FontProperties:
         """
         获取适合当前系统的中文字体
@@ -128,14 +127,14 @@ class RiskVisualization:
             FontProperties: 字体属性对象
         """
         system = platform.system()
-        
+
         if system == 'Windows':
             # Windows系统使用微软雅黑或黑体
             fonts = [r'C:\Windows\Fonts\msyh.ttc', r'C:\Windows\Fonts\simhei.ttf']
             for font_path in fonts:
                 if os.path.exists(font_path):
                     return FontProperties(fname=font_path)
-        
+
         elif system == 'Darwin':  # macOS
             # macOS系统使用苹方或华文黑体
             fonts = [
@@ -146,19 +145,19 @@ class RiskVisualization:
             for font_path in fonts:
                 if os.path.exists(font_path):
                     return FontProperties(fname=font_path)
-        
+
         # 其他系统使用默认字体
         return FontProperties()
-    
+
     def _configure_chinese_fonts(self) -> None:
         """配置matplotlib支持中文显示"""
         plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun', 'Arial Unicode MS']
         plt.rcParams['axes.unicode_minus'] = False  # 正确显示负号
-    
-    def plot_criteria_weights_pie(self, 
-                                 weights: Dict[str, float], 
-                                 title: str = "一级风险因素局部权重",
-                                 filename: str = "criteria_weights_pie.png") -> None:
+
+    def plot_criteria_weights_pie(self,
+                                  weights: Dict[str, float],
+                                  title: str = "一级风险因素局部权重",
+                                  filename: str = "criteria_weights_pie.png") -> None:
         """
         绘制一级风险因素局部权重饼状图
         
@@ -169,55 +168,55 @@ class RiskVisualization:
         """
         # 创建图表
         plt.figure(figsize=(10, 8))
-        
+
         # 提取数据
         labels = list(weights.keys())
         sizes = list(weights.values())
-        
+
         # 计算百分比
         total = sum(sizes)
-        percentages = [s/total*100 for s in sizes]
+        percentages = [s / total * 100 for s in sizes]
 
         # 设置扇形颜色
         colors = plt.cm.tab10(np.linspace(0, 1, len(labels)))
 
         # 绘制饼图
         patches, texts, autotexts = plt.pie(
-            sizes, 
+            sizes,
             labels=labels,
             autopct='%1.1f%%',
             startangle=90,
             colors=colors,
             textprops={'fontproperties': self.font_properties}
         )
-        
+
         # 设置属性
         plt.axis('equal')  # 确保饼图是圆形的
-        
+
         # 设置标题
         plt.title(title, fontproperties=self.font_properties, fontsize=16, pad=20)
-        
+
         # 添加图例
         plt.legend(
-            patches, 
-            [f"{l} ({s:.2%})" for l, s in zip(labels, [s/total for s in sizes])],
-            loc="best", 
+            patches,
+            [f"{l} ({s:.2%})" for l, s in zip(labels, [s / total for s in sizes])],
+            loc="best",
             bbox_to_anchor=(1, 0.5),
             prop=self.font_properties
         )
-        
+
         # 保存图表
         output_path = os.path.join(self.output_dir, filename)
         plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
         plt.close()
-        
+
         print(f"饼状图已保存到: {output_path}")
-    
-    def plot_global_weights_pie(self, 
-                              weights: Dict[str, float], 
-                              title: str = "二级风险因素全局权重",
-                              top_n: int = 10,
-                              filename: str = "global_weights_pie.png") -> None:
+
+    def plot_global_weights_pie(self,
+                                weights: Dict[str, float],
+                                title: str = "二级风险因素全局权重",
+                                top_n: int = 10,
+                                filename: str = "global_weights_pie.png") -> None:
         """
         绘制二级风险因素全局权重饼状图
         
@@ -229,7 +228,7 @@ class RiskVisualization:
         """
         # 对权重排序
         sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=True)
-        
+
         # 选择前N个因素
         if len(sorted_weights) > top_n:
             top_weights = sorted_weights[:top_n]
@@ -239,15 +238,15 @@ class RiskVisualization:
                 top_weights.append(("其他", other_weight))
         else:
             top_weights = sorted_weights
-        
+
         # 提取数据
         labels = [w[0] for w in top_weights]
         sizes = [w[1] for w in top_weights]
-        
+
         # 计算百分比
         total = sum(sizes)
-        percentages = [s/total*100 for s in sizes]
-        
+        percentages = [s / total * 100 for s in sizes]
+
         # 创建图表
         plt.figure(figsize=(12, 9))
 
@@ -256,7 +255,7 @@ class RiskVisualization:
 
         # 绘制饼图
         wedges, texts, autotexts = plt.pie(
-            sizes, 
+            sizes,
             labels=labels,
             autopct='%1.1f%%',
             startangle=90,
@@ -264,33 +263,33 @@ class RiskVisualization:
             textprops={'fontproperties': self.font_properties},
             wedgeprops={'linewidth': 1, 'edgecolor': 'white'}
         )
-        
+
         # 设置属性
         plt.axis('equal')  # 确保饼图是圆形的
-        
+
         # 设置标题
         plt.title(title, fontproperties=self.font_properties, fontsize=16, pad=20)
-        
+
         # 添加图例
         plt.legend(
-            wedges, 
-            [f"{l} ({s:.2%})" for l, s in zip(labels, [s/total for s in sizes])],
-            loc="center left", 
+            wedges,
+            [f"{l} ({s:.2%})" for l, s in zip(labels, [s / total for s in sizes])],
+            loc="center left",
             bbox_to_anchor=(1, 0.5),
             prop=self.font_properties
         )
-        
+
         # 保存图表
         output_path = os.path.join(self.output_dir, filename)
         plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
         plt.close()
-        
+
         print(f"全局权重饼状图已保存到: {output_path}")
-    
-    def plot_fuzzy_membership_bar(self, 
-                                 fuzzy_result: np.ndarray,
-                                 title: str = "模糊综合评价隶属度",
-                                 filename: str = "fuzzy_membership_bar.png") -> None:
+
+    def plot_fuzzy_membership_bar(self,
+                                  fuzzy_result: np.ndarray,
+                                  title: str = "模糊综合评价隶属度",
+                                  filename: str = "fuzzy_membership_bar.png") -> None:
         """
         绘制模糊综合评价隶属度柱状图
         
@@ -301,50 +300,50 @@ class RiskVisualization:
         """
         # 创建图表
         plt.figure(figsize=(10, 6))
-        
+
         # 绘制柱状图
         bars = plt.bar(
-            self.risk_levels, 
+            self.risk_levels,
             fuzzy_result,
             color=[self.risk_colors.get(level, '#1f77b4') for level in self.risk_levels]
         )
-        
+
         # 添加数值标签
         for bar in bars:
             height = bar.get_height()
             plt.text(
-                bar.get_x() + bar.get_width()/2., 
+                bar.get_x() + bar.get_width() / 2.,
                 height + 0.01,
                 f'{height:.3f}',
-                ha='center', 
+                ha='center',
                 va='bottom'
             )
-        
+
         # 设置坐标轴标签
         plt.xlabel('风险等级', fontproperties=self.font_properties, fontsize=12)
         plt.ylabel('隶属度', fontproperties=self.font_properties, fontsize=12)
-        
+
         # 设置标题
         plt.title(title, fontproperties=self.font_properties, fontsize=14)
-        
+
         # 添加网格线
         plt.grid(axis='y', linestyle='--', alpha=0.7)
-        
+
         # 设置坐标轴范围
         plt.ylim(0, max(fuzzy_result) * 1.2)
-        
+
         # 保存图表
         output_path = os.path.join(self.output_dir, filename)
         plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
         plt.close()
-        
+
         print(f"模糊隶属度柱状图已保存到: {output_path}")
-    
-    def plot_sensitivity_radar(self, 
-                              sensitivity_indices: Dict[str, float],
-                              title: str = "风险因素敏感性雷达图",
-                              top_n: int = 8,
-                              filename: str = "sensitivity_radar.png") -> None:
+
+    def plot_sensitivity_radar(self,
+                               sensitivity_indices: Dict[str, float],
+                               title: str = "风险因素敏感性雷达图",
+                               top_n: int = 8,
+                               filename: str = "sensitivity_radar.png") -> None:
         """
         绘制敏感性雷达图
         
@@ -356,60 +355,60 @@ class RiskVisualization:
         """
         # 对敏感性指标排序
         sorted_indices = sorted(
-            sensitivity_indices.items(), 
-            key=lambda x: abs(x[1]), 
+            sensitivity_indices.items(),
+            key=lambda x: abs(x[1]),
             reverse=True
         )
-        
+
         # 选择前N个敏感性最大的因素
         if len(sorted_indices) > top_n:
             selected_indices = sorted_indices[:top_n]
         else:
             selected_indices = sorted_indices
-        
+
         # 提取数据
         factors = [item[0] for item in selected_indices]
         values = [abs(item[1]) for item in selected_indices]  # 使用绝对值
-        
+
         # 确保数据点数量足够
         if len(factors) < 3:
             logger.warning("雷达图需要至少3个数据点，当前只有%d个", len(factors))
             return
-        
+
         # 创建图表
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, polar=True)
-        
+
         # 计算角度
-        angles = np.linspace(0, 2*np.pi, len(factors), endpoint=False).tolist()
-        
+        angles = np.linspace(0, 2 * np.pi, len(factors), endpoint=False).tolist()
+
         # 闭合雷达图
         values.append(values[0])
         angles.append(angles[0])
         factors.append(factors[0])
-        
+
         # 绘制雷达图
         ax.plot(angles, values, 'o-', linewidth=2)
         ax.fill(angles, values, alpha=0.25)
-        
+
         # 设置标签
         ax.set_thetagrids(
-            np.degrees(angles[:-1]), 
+            np.degrees(angles[:-1]),
             factors[:-1],
             fontproperties=self.font_properties
         )
-        
+
         # 设置标题
         ax.set_title(title, fontproperties=self.font_properties, fontsize=14, y=1.1)
-        
+
         # 添加网格线
         ax.grid(True)
-        
+
         # 保存图表
         output_path = os.path.join(self.output_dir, filename)
         plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
         plt.close()
-        
+
         print(f"敏感性雷达图已保存到: {output_path}")
 
     def plot_risk_level_transition(self,
@@ -631,11 +630,11 @@ class RiskVisualization:
         plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
         plt.close()
 
-    def _plot_risk_level_alternative(self, 
-                                    risk_distribution: Dict[str, float],
-                                    baseline_category: str,
-                                    title: str = "风险等级分布",
-                                    filename: str = "risk_level_distribution.png") -> None:
+    def _plot_risk_level_alternative(self,
+                                     risk_distribution: Dict[str, float],
+                                     baseline_category: str,
+                                     title: str = "风险等级分布",
+                                     filename: str = "risk_level_distribution.png") -> None:
         """
         绘制风险等级分布替代图（当Sankey图不可用时）
         
@@ -647,24 +646,24 @@ class RiskVisualization:
         """
         # 创建图表
         plt.figure(figsize=(10, 6))
-        
+
         # 提取数据
         levels = list(risk_distribution.keys())
         values = list(risk_distribution.values())
-        
+
         # 设置颜色
         colors = [
-            self.risk_colors.get(level, '#1f77b4') 
+            self.risk_colors.get(level, '#1f77b4')
             if level != baseline_category else '#1f77b4'
             for level in levels
         ]
-        
+
         # 突出显示基准等级
         explode = [0.1 if level == baseline_category else 0 for level in levels]
-        
+
         # 绘制饼图
         wedges, texts, autotexts = plt.pie(
-            values, 
+            values,
             labels=levels,
             explode=explode,
             autopct='%1.1f%%',
@@ -673,13 +672,13 @@ class RiskVisualization:
             textprops={'fontproperties': self.font_properties},
             wedgeprops={'linewidth': 1, 'edgecolor': 'white'}
         )
-        
+
         # 设置属性
         plt.axis('equal')
-        
+
         # 设置标题
         plt.title(title, fontproperties=self.font_properties, fontsize=14)
-        
+
         # 添加基准等级标记
         plt.annotate(
             f"基准等级: {baseline_category}",
@@ -689,20 +688,20 @@ class RiskVisualization:
             fontsize=12,
             ha='center'
         )
-        
+
         # 保存图表
         output_path = os.path.join(self.output_dir, filename)
         plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
         plt.close()
-        
+
         print(f"风险等级分布图已保存到: {output_path}")
 
     @safe_visualization(output_dir="output/visualizations", module_name="RiskVisualization")
-    def plot_sensitivity_tornado(self, 
-                               sensitivity_indices: Dict[str, float],
-                               title: str = "风险因素敏感性龙卷风图",
-                               top_n: int = 10,
-                               filename: str = "sensitivity_tornado.png") -> None:
+    def plot_sensitivity_tornado(self,
+                                 sensitivity_indices: Dict[str, float],
+                                 title: str = "风险因素敏感性龙卷风图",
+                                 top_n: int = 10,
+                                 filename: str = "sensitivity_tornado.png") -> None:
         """
         绘制敏感性龙卷风图
         
@@ -714,21 +713,21 @@ class RiskVisualization:
         """
         # 对敏感性指标排序
         sorted_indices = sorted(
-            sensitivity_indices.items(), 
-            key=lambda x: abs(x[1]), 
+            sensitivity_indices.items(),
+            key=lambda x: abs(x[1]),
             reverse=True
         )
-        
+
         # 选择前N个敏感性最大的因素
         if len(sorted_indices) > top_n:
             selected_indices = sorted_indices[:top_n]
         else:
             selected_indices = sorted_indices
-        
+
         # 提取数据
         factors = [item[0] for item in selected_indices]
         values = [item[1] for item in selected_indices]
-        
+
         # 创建图表，明确限制尺寸
         plt.figure(figsize=(10, min(8, 0.5 * len(factors))))
 
@@ -737,54 +736,54 @@ class RiskVisualization:
             factors,
             values,
             color=plt.cm.coolwarm(
-                np.array([0.5 + v/10 for v in values])
+                np.array([0.5 + v / 10 for v in values])
             ),
             height=0.6
         )
-        
+
         # 添加垂直参考线
         plt.axvline(x=0, color='gray', linestyle='-', linewidth=1)
-        
+
         # 添加数值标签
         for i, bar in enumerate(bars):
             width = bar.get_width()
             ha = 'left' if width < 0 else 'right'
             x = width + 0.01 if width > 0 else width - 0.01
             plt.text(
-                x, bar.get_y() + bar.get_height()/2,
+                x, bar.get_y() + bar.get_height() / 2,
                 f'{width:.3f}',
-                ha=ha, 
+                ha=ha,
                 va='center',
                 color='black'
             )
-        
+
         # 设置坐标轴标签
         plt.xlabel('敏感性指标', fontproperties=self.font_properties, fontsize=12)
         plt.ylabel('风险因素', fontproperties=self.font_properties, fontsize=12)
-        
+
         # 设置刻度标签字体
         plt.xticks(fontproperties=self.font_properties)
         plt.yticks(fontproperties=self.font_properties)
-        
+
         # 添加网格线
         plt.grid(axis='x', linestyle='--', alpha=0.7)
-        
+
         # 设置标题
         plt.title(title, fontproperties=self.font_properties, fontsize=14)
-        
+
         # 保存图表
         output_path = os.path.join(self.output_dir, filename)
         # 设置DPI限制，防止图像过大
         plt.savefig(os.path.join(self.output_dir, filename), dpi=100, bbox_inches='tight')
 
         print(f"敏感性龙卷风图已保存到: {output_path}")
-    
-    def plot_risk_heatmap(self, 
-                         risk_matrix: np.ndarray,
-                         factors: List[str],
-                         variations: List[float],
-                         title: str = "风险影响热力图",
-                         filename: str = "risk_heatmap.png") -> None:
+
+    def plot_risk_heatmap(self,
+                          risk_matrix: np.ndarray,
+                          factors: List[str],
+                          variations: List[float],
+                          title: str = "风险影响热力图",
+                          filename: str = "risk_heatmap.png") -> None:
         """
         绘制风险影响热力图
         
@@ -797,26 +796,26 @@ class RiskVisualization:
         """
         # 创建图表
         plt.figure(figsize=(10, 8))
-        
+
         # 设置热力图标签
-        x_labels = [f"{v*100:.0f}%" for v in variations]
-        y_labels = [f"{v*100:.0f}%" for v in variations]
-        
+        x_labels = [f"{v * 100:.0f}%" for v in variations]
+        y_labels = [f"{v * 100:.0f}%" for v in variations]
+
         # 绘制热力图
         im = plt.imshow(risk_matrix, cmap="YlOrRd")
-        
+
         # 添加颜色条
         cbar = plt.colorbar(im)
         cbar.set_label('风险指数', fontproperties=self.font_properties, fontsize=12)
-        
+
         # 添加标签
         plt.xlabel(f'{factors[1]} 变化率', fontproperties=self.font_properties, fontsize=12)
         plt.ylabel(f'{factors[0]} 变化率', fontproperties=self.font_properties, fontsize=12)
-        
+
         # 设置刻度标签
         plt.xticks(range(len(x_labels)), x_labels, fontproperties=self.font_properties)
         plt.yticks(range(len(y_labels)), y_labels, fontproperties=self.font_properties)
-        
+
         # 添加值标注
         for i in range(risk_matrix.shape[0]):
             for j in range(risk_matrix.shape[1]):
@@ -825,15 +824,15 @@ class RiskVisualization:
                     ha="center", va="center",
                     color="black" if risk_matrix[i, j] < 0.7 else "white"
                 )
-        
+
         # 设置标题
         plt.title(title, fontproperties=self.font_properties, fontsize=14)
-        
+
         # 保存图表
         output_path = os.path.join(self.output_dir, filename)
         plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
         plt.close()
-        
+
         print(f"风险热力图已保存到: {output_path}")
 
     def plot_monte_carlo_scatter(self,
@@ -952,11 +951,11 @@ class RiskVisualization:
 
         print(f"蒙特卡洛散点图已保存到: {output_path}")
 
-    def plot_risk_distribution(self, 
-                              risk_indices: List[float],
-                              risk_stats: Dict[str, Any],
-                              title: str = "风险指数分布",
-                              filename: str = "risk_distribution.png") -> None:
+    def plot_risk_distribution(self,
+                               risk_indices: List[float],
+                               risk_stats: Dict[str, Any],
+                               title: str = "风险指数分布",
+                               filename: str = "risk_distribution.png") -> None:
         """
         绘制风险指数分布图
         
@@ -968,17 +967,17 @@ class RiskVisualization:
         """
         # 创建图表
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), gridspec_kw={'height_ratios': [2, 1]})
-        
+
         # 绘制直方图和核密度估计
         sns.histplot(risk_indices, kde=True, ax=ax1, color='skyblue')
-        
+
         # 添加统计信息参考线
         mean = risk_stats.get("mean", np.mean(risk_indices))
         median = risk_stats.get("median", np.median(risk_indices))
-        
+
         ax1.axvline(mean, color='red', linestyle='-', label=f'均值: {mean:.3f}')
         ax1.axvline(median, color='green', linestyle='--', label=f'中位数: {median:.3f}')
-        
+
         # 添加百分位线
         percentiles = risk_stats.get("percentiles", {})
         if percentiles:
@@ -990,23 +989,23 @@ class RiskVisualization:
                     alpha=0.7,
                     label=f'{p_label}: {p_value:.3f}'
                 )
-        
+
         # 设置标签
         ax1.set_xlabel('风险指数', fontproperties=self.font_properties, fontsize=12)
         ax1.set_ylabel('频率', fontproperties=self.font_properties, fontsize=12)
         ax1.set_title(title, fontproperties=self.font_properties, fontsize=14)
         ax1.legend(prop=self.font_properties)
-        
+
         # 添加网格线
         ax1.grid(True, linestyle='--', alpha=0.7)
-        
+
         # 绘制箱线图
         sns.boxplot(x=risk_indices, ax=ax2, color='lightblue')
-        
+
         # 设置标签
         ax2.set_xlabel('风险指数', fontproperties=self.font_properties, fontsize=12)
         ax2.set_title('风险指数箱线图', fontproperties=self.font_properties, fontsize=12)
-        
+
         # 添加统计信息注释
         stats_text = (
             f"均值: {mean:.3f}\n"
@@ -1015,7 +1014,7 @@ class RiskVisualization:
             f"最小值: {risk_stats.get('min', np.min(risk_indices)):.3f}\n"
             f"最大值: {risk_stats.get('max', np.max(risk_indices)):.3f}"
         )
-        
+
         ax2.text(
             0.95, 0.50,
             stats_text,
@@ -1026,13 +1025,13 @@ class RiskVisualization:
             ha='right',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.7)
         )
-        
+
         # 调整布局
         plt.tight_layout()
-        
+
         # 保存图表
         output_path = os.path.join(self.output_dir, filename)
         plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
         plt.close()
-        
+
         print(f"风险分布图已保存到: {output_path}")

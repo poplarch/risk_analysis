@@ -15,7 +15,15 @@
     "fuzzy_excel": "fuzzy_risk_evaluation.xlsx"
   },
   "ahp_settings": {
-    "ahp_model_level": ["Goal", "技术风险C1", "业务风险C2", "管理风险C3", "运维风险C4", "供应链风险C5", "合规风险C6"],
+    "ahp_model_level": [
+      "Goal",
+      "技术风险C1",
+      "业务风险C2",
+      "管理风险C3",
+      "运维风险C4",
+      "供应链风险C5",
+      "合规风险C6"
+    ],
     "expert_count": 5,
     "correction_method": "iterative",
     "aggregation_method": "geometric",
@@ -26,7 +34,13 @@
     "expert_count": 5,
     "use_dynamic_membership": false,
     "weight_threshold": 0.03,
-    "risk_levels": ["VL", "L", "M", "H", "VH"]
+    "risk_levels": [
+      "VL",
+      "L",
+      "M",
+      "H",
+      "VH"
+    ]
   },
   "analysis_options": {
     "perform_sensitivity_analysis": true,
@@ -35,7 +49,10 @@
   },
   "visualization": {
     "enabled": true,
-    "output_formats": ["png", "pdf"],
+    "output_formats": [
+      "png",
+      "pdf"
+    ],
     "dpi": 300,
     "color_scheme": "viridis"
   }

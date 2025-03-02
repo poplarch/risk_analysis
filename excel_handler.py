@@ -14,12 +14,11 @@ from typing import List, Dict, Tuple, Optional, Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from openpyxl.drawing.image import Image
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
 from enhanced_fuzzy_evaluator import EnhancedFuzzyEvaluator
-import tempfile
-from openpyxl.drawing.image import Image
 
 
 class ExcelExporter:
@@ -535,6 +534,7 @@ class ExcelExporter:
             except Exception as e:
                 logging.error(f"生成模糊评价可视化时出错: {str(e)}", exc_info=True)
                 worksheet.cell(row=1, column=1, value=f"图表生成错误: {str(e)}")
+
 
 class ExcelDataHandler:
     """Excel文件数据处理器，负责读取AHP和模糊评价数据"""

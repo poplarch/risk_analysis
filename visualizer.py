@@ -9,8 +9,10 @@ from matplotlib.figure import Figure
 from matplotlib.font_manager import FontProperties
 from matplotlib.patches import Patch
 
+
 class Visualizer:
     """结果可视化模块"""
+
     @staticmethod
     def get_chinese_font():
         """获取适合当前系统的中文字体"""
@@ -261,10 +263,10 @@ class SensitivityVisualizer:
             return True
 
     def plot_membership_sensitivity(self,
-                                   sensitivity_results: Dict[str, Dict[str, float]],
-                                   metrics: List[str] = None,
-                                   title: str = "Membership Function Sensitivity Analysis",
-                                   output_path: Optional[str] = None) -> Figure:
+                                    sensitivity_results: Dict[str, Dict[str, float]],
+                                    metrics: List[str] = None,
+                                    title: str = "Membership Function Sensitivity Analysis",
+                                    output_path: Optional[str] = None) -> Figure:
         """绘制隶属度函数敏感度分析图
 
         Args:
@@ -303,7 +305,7 @@ class SensitivityVisualizer:
             # 添加数值标签
             for bar in bars:
                 height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width()/2., height,
+                ax.text(bar.get_x() + bar.get_width() / 2., height,
                         f'{height:.3f}',
                         ha='center', va='bottom')
 
@@ -327,9 +329,9 @@ class SensitivityVisualizer:
         return fig
 
     def plot_threshold_impact(self,
-                             impact_results: Dict[str, float],
-                             title: str = "Risk Threshold Impact Analysis",
-                             output_path: Optional[str] = None) -> Figure:
+                              impact_results: Dict[str, float],
+                              title: str = "Risk Threshold Impact Analysis",
+                              output_path: Optional[str] = None) -> Figure:
         """绘制阈值影响分析图
 
         Args:
@@ -349,8 +351,10 @@ class SensitivityVisualizer:
         ax1.bar(['Category Stability'], [1 - category_change], color='#2ecc71', bottom=[category_change])
 
         # 添加标签
-        ax1.text(0, category_change/2, f'{category_change:.1%}', ha='center', va='center', color='white', fontweight='bold')
-        ax1.text(0, category_change + (1-category_change)/2, f'{(1-category_change):.1%}', ha='center', va='center', color='white', fontweight='bold')
+        ax1.text(0, category_change / 2, f'{category_change:.1%}', ha='center', va='center', color='white',
+                 fontweight='bold')
+        ax1.text(0, category_change + (1 - category_change) / 2, f'{(1 - category_change):.1%}', ha='center',
+                 va='center', color='white', fontweight='bold')
 
         # 设置标题和标签
         ax1.set_title('Risk Category Stability', fontproperties=self.font_properties, fontsize=12)
@@ -402,11 +406,11 @@ class SensitivityVisualizer:
         return fig
 
     def plot_sensitivity_radar(self,
-                              sensitivity_data: Dict[str, Dict[str, float]],
-                              metrics: List[str] = None,
-                              title: str = "Factor Sensitivity Radar",
-                              output_path: Optional[str] = None,
-                              top_n: int = 5) -> Figure:
+                               sensitivity_data: Dict[str, Dict[str, float]],
+                               metrics: List[str] = None,
+                               title: str = "Factor Sensitivity Radar",
+                               output_path: Optional[str] = None,
+                               top_n: int = 5) -> Figure:
         """绘制因素敏感度雷达图
 
         Args:
@@ -442,7 +446,7 @@ class SensitivityVisualizer:
         fig, ax = plt.subplots(figsize=self.default_figsize, subplot_kw=dict(polar=True))
 
         # 角度设置
-        angles = np.linspace(0, 2*np.pi, len(top_factors), endpoint=False).tolist()
+        angles = np.linspace(0, 2 * np.pi, len(top_factors), endpoint=False).tolist()
         # 确保闭合
         angles += angles[:1]
 

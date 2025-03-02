@@ -8,6 +8,7 @@ from ahp_processor import ConsistencyChecker, WeightCalculator
 
 class TestAHP(unittest.TestCase):
     """AHP 模块的单元测试"""
+
     def test_consistency_checker(self):
         """测试一致性检查器"""
         checker = ConsistencyChecker()
@@ -23,6 +24,7 @@ class TestAHP(unittest.TestCase):
         weights = calculator.calculate_weights(matrix)
         self.assertAlmostEqual(sum(weights), 1.0, places=6)
         self.assertAlmostEqual(weights[0], 0.6667, places=4)
+
 
 if __name__ == "__main__":
     unittest.main()

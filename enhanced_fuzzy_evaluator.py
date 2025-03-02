@@ -6,17 +6,16 @@ import os
 import traceback
 from typing import List, Dict, Tuple, Optional, Callable, Any
 
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.font_manager import FontProperties
-import seaborn as sns
 
 
 def visualization_error_handler(func):
     """
     可视化函数异常处理装饰器
     """
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
@@ -37,7 +36,9 @@ def visualization_error_handler(func):
                 except:
                     pass
             return None
+
     return wrapper
+
 
 class EnhancedFuzzyEvaluator:
     """
@@ -48,11 +49,11 @@ class EnhancedFuzzyEvaluator:
     2. 兼容敏感性分析所需的接口
     3. 提供详细的中间计算结果和可视化功能
     """
-    
-    def __init__(self, 
-                risk_levels: Optional[List[str]] = None,
-                static_membership_params: Optional[Dict[str, Tuple[float, float, float, float]]] = None,
-                dynamic_enabled: bool = True):
+
+    def __init__(self,
+                 risk_levels: Optional[List[str]] = None,
+                 static_membership_params: Optional[Dict[str, Tuple[float, float, float, float]]] = None,
+                 dynamic_enabled: bool = True):
         """
         初始化增强型模糊评价器
         
@@ -70,19 +71,19 @@ class EnhancedFuzzyEvaluator:
             "VH": (0.8, 0.9, 1.0, 1.0)
         }
         self.dynamic_enabled = dynamic_enabled
-        
+
         # 静态隶属度函数（初始化时创建）
         self.static_membership_functions = self._create_membership_functions(self.static_membership_params)
-        
+
         # 动态隶属度函数（首次使用时创建）
         self.dynamic_membership_functions_cache = {}
-        
+
         # 记录最近一次评价使用的隶属度函数
         self.last_used_membership_functions = None
-        
+
         # 评价结果缓存
         self.evaluation_cache = {}
-        
+
         # 配置日志记录器
         self.logger = logging.getLogger(__name__)
 
@@ -101,8 +102,10 @@ class EnhancedFuzzyEvaluator:
         Returns:
             Dict[str, Callable]: 隶属度函数字典 {风险等级: 隶属度函数}
         """
+
         def create_trap_mf(a: float, b: float, c: float, d: float) -> Callable:
             """创建单个梯形隶属度函数"""
+
             def trap_mf(x: float) -> float:
                 """梯形隶属度函数实现"""
                 if x <= a or x >= d:
@@ -113,9 +116,9 @@ class EnhancedFuzzyEvaluator:
                     return 1.0
                 else:  # c < x < d
                     return (d - x) / (d - c + 1e-10)  # 防止除零
-            
+
             return trap_mf
-        
+
         # 创建并返回隶属度函数字典
         return {level: create_trap_mf(*param) for level, param in params.items()}
 
@@ -204,10 +207,10 @@ class EnhancedFuzzyEvaluator:
         # 创建隶属度函数
         return self._create_membership_functions(dynamic_params)
 
-    def calculate_membership_degree(self, 
-                                   expert_scores: np.ndarray,
-                                   expert_weights: Optional[list[float]] = None,
-                                   use_dynamic: Optional[bool] = None) -> np.ndarray:
+    def calculate_membership_degree(self,
+                                    expert_scores: np.ndarray,
+                                    expert_weights: Optional[list[float]] = None,
+                                    use_dynamic: Optional[bool] = None) -> np.ndarray:
         """
         计算风险因素的隶属度向量
         
@@ -223,12 +226,12 @@ class EnhancedFuzzyEvaluator:
         use_dynamic = self.dynamic_enabled if use_dynamic is None else use_dynamic
         if expert_weights is None:
             logging.warning("FCE的专家权重为空，初始化为默认值")
-            expert_weights = [1.0/expert_scores.shape[0]] * expert_scores.shape[0]
-        
+            expert_weights = [1.0 / expert_scores.shape[0]] * expert_scores.shape[0]
+
         # 将专家评分转换为numpy数组并确保在[0,1]范围内
         scores = np.asarray(expert_scores, dtype=float)
         scores = np.clip(scores, 0, 1)
-        
+
         # 选择或生成隶属度函数
         if use_dynamic:
             # 检查是否已有相同数据特征的缓存
@@ -248,10 +251,10 @@ class EnhancedFuzzyEvaluator:
             # 使用静态隶属度函数
             membership_functions = self.static_membership_functions
             self.logger.debug("使用静态隶属度函数")
-        
+
         # 记录最近使用的隶属度函数
         self.last_used_membership_functions = membership_functions
-        
+
         # 计算隶属度
         membership = np.zeros(len(self.risk_levels))
         for i, level in enumerate(self.risk_levels):
@@ -265,9 +268,9 @@ class EnhancedFuzzyEvaluator:
         sum_membership = np.sum(membership)
         if sum_membership > 0:
             membership = membership / sum_membership
-        
+
         return membership
-    
+
     def fuzzy_multiply(self, weight_vector: np.ndarray, membership_matrix: np.ndarray) -> np.ndarray:
         """
         加权模糊运算，计算综合隶属度
@@ -282,24 +285,25 @@ class EnhancedFuzzyEvaluator:
         """
         # 确保权重向量和隶属度矩阵兼容
         if weight_vector.shape[0] != membership_matrix.shape[0]:
-            raise ValueError(f"权重向量维度({weight_vector.shape[0]})与隶属度矩阵行数({membership_matrix.shape[0]})不匹配")
-        
+            raise ValueError(
+                f"权重向量维度({weight_vector.shape[0]})与隶属度矩阵行数({membership_matrix.shape[0]})不匹配")
+
         # 确保权重归一化
         weight_sum = np.sum(weight_vector)
         if not np.isclose(weight_sum, 1.0) and weight_sum > 0:
             weight_vector = weight_vector / weight_sum
             self.logger.debug("权重向量已自动归一化")
-        
+
         # 执行加权矩阵乘法 R = W * M
         result = np.dot(weight_vector, membership_matrix)
-        
+
         # 归一化处理
         result_sum = np.sum(result)
         if result_sum > 0:
             result = result / result_sum
-        
+
         return result
-    
+
     def calculate_risk_index(self, fuzzy_vector: np.ndarray) -> float:
         """
         计算风险指数(加权平均法)
@@ -313,17 +317,17 @@ class EnhancedFuzzyEvaluator:
         # 风险等级对应的数值评分
         # VL=0.1, L=0.3, M=0.5, H=0.7, VH=0.9
         level_values = np.array([0.1, 0.3, 0.5, 0.7, 0.9])
-        
+
         # 计算加权平均
         risk_index = np.sum(fuzzy_vector * level_values)
-        
+
         return risk_index
-    
-    def evaluate(self, 
-                expert_scores: Dict[str, np.ndarray],
-                factor_weights: Dict[str, float],
-                expert_weights: Optional[list[float]] = None,
-                use_dynamic: Optional[bool] = None) -> Dict[str, Any]:
+
+    def evaluate(self,
+                 expert_scores: Dict[str, np.ndarray],
+                 factor_weights: Dict[str, float],
+                 expert_weights: Optional[list[float]] = None,
+                 use_dynamic: Optional[bool] = None) -> Dict[str, Any]:
         """
         单层模糊综合评价
         
@@ -350,35 +354,35 @@ class EnhancedFuzzyEvaluator:
 
         # 转换为有序列表，确保权重向量和隶属度矩阵对应
         ordered_factors = sorted(list(common_factors))
-        
+
         # 计算每个因素的隶属度
         factor_membership = {}
         membership_matrix = np.zeros((len(ordered_factors), len(self.risk_levels)))
         weight_vector = np.zeros(len(ordered_factors))
-        
+
         for i, factor in enumerate(ordered_factors):
             # 计算隶属度
             normalized_scores = np.asarray(expert_scores[factor]) / 10.0  # 假设原始评分为1-10
             membership = self.calculate_membership_degree(normalized_scores, expert_weights, use_dynamic)
             factor_membership[factor] = membership
             membership_matrix[i] = membership
-        
+
         # 构建权重向量
         weight_vector = np.array([factor_weights.get(factor, 0) for factor in ordered_factors])
         weight_sum = np.sum(weight_vector)
         if weight_sum > 0:
             weight_vector = weight_vector / weight_sum
-        
+
         # 计算综合评价结果
         integrated_result = self.fuzzy_multiply(weight_vector, membership_matrix)
-        
+
         # 计算风险指数
         risk_index = self.calculate_risk_index(integrated_result)
 
         # 打印调试信息（实际使用时可以移除）
         logging.debug(f"权重矢量: {weight_vector}")
         logging.debug(f"风险指数: {risk_index}")
-        
+
         # 构建结果字典
         result = {
             "membership_matrix": membership_matrix,
@@ -388,10 +392,10 @@ class EnhancedFuzzyEvaluator:
             "risk_index": risk_index,
             "ordered_factors": ordered_factors  # 保存因素顺序，便于后续处理
         }
-        
+
         # 缓存结果
         self.evaluation_cache["latest"] = result
-        
+
         return result
 
     def validate_sensitivity_inputs(factor_weights, expert_scores):
@@ -796,10 +800,10 @@ class EnhancedFuzzyEvaluator:
         }
 
     def enhanced_sensitivity_analysis_(self, factor_weights: Dict[str, float],
-                                      expert_scores: Dict[str, np.ndarray],
-                                      use_dynamic: bool = None,
-                                      variation_range: float = 0.2,
-                                      steps: int = 10) -> Dict[str, Any]:
+                                       expert_scores: Dict[str, np.ndarray],
+                                       use_dynamic: bool = None,
+                                       variation_range: float = 0.2,
+                                       steps: int = 10) -> Dict[str, Any]:
         """
         Enhanced sensitivity analysis with robust calculation methodology
         """
@@ -844,12 +848,12 @@ class EnhancedFuzzyEvaluator:
             try:
                 sensitivity = self.calculate_sensitivity(factor_weights, expert_scores, factor, variation_range=0.2)
                 # Use central difference approximation for derivative
-                #central_diff = (risk_indices[-1] - risk_indices[0]) / (2 * variation_range)
+                # central_diff = (risk_indices[-1] - risk_indices[0]) / (2 * variation_range)
 
                 ## Calculate elasticity (normalized sensitivity)
-                #if baseline_risk_index > epsilon:
+                # if baseline_risk_index > epsilon:
                 #    sensitivity = central_diff * original_weight / baseline_risk_index
-                #else:
+                # else:
                 #    sensitivity = central_diff * original_weight / epsilon
 
                 # Apply bounded normalization to prevent overflow
@@ -1504,7 +1508,6 @@ class EnhancedFuzzyEvaluator:
                     fontsize=9
                 )
 
-
     @visualization_error_handler
     def visualize_sensitivity_analysis(self,
                                        sensitivity_results: Optional[Dict[str, Any]] = None,
@@ -1658,7 +1661,6 @@ class EnhancedFuzzyEvaluator:
         except Exception as e:
             logging.error(f"绘制敏感性曲线图出错: {str(e)}")
             plt.close()
-
 
     def visualize_cross_sensitivity(self,
                                     cross_results: Optional[Dict[str, Any]] = None,

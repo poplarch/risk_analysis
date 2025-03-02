@@ -11,7 +11,7 @@ from openpyxl.styles import PatternFill, Border, Side, Alignment
 
 
 def create_ahp_template(
-    output_path: str, level: str, criteria: list, num_experts: int = 3
+        output_path: str, level: str, criteria: list, num_experts: int = 3
 ):
     """
     创建AHP专家判断的Excel模板（仅需填写上三角部分）

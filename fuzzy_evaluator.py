@@ -1,18 +1,15 @@
 # -*- coding: utf-8 -*-
-import functools
 import logging
-import traceback
 from concurrent.futures import ProcessPoolExecutor
 from typing import List, Dict, Tuple, Optional
 
 import numpy as np
-from matplotlib import pyplot as plt
 
 from visualizer import SensitivityVisualizer
 
 # 配置日志
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s", handlers=[logging.StreamHandler()])
-
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s",
+                    handlers=[logging.StreamHandler()])
 
 
 class FuzzyEvaluator:
@@ -151,7 +148,8 @@ class FuzzyEvaluator:
 
         return sensitivity_matrix
 
-    def generate_sensitivity_heatmap(self, sensitivity_matrix: np.ndarray, factor_names: List[str], output_path: str) -> None:
+    def generate_sensitivity_heatmap(self, sensitivity_matrix: np.ndarray, factor_names: List[str],
+                                     output_path: str) -> None:
         """生成因素-风险等级敏感度热力图"""
         visualizer = SensitivityVisualizer()
         visualizer.plot_heatmap(
@@ -278,16 +276,19 @@ class FuzzyEvaluator:
                 # 隶属度函数敏感度分析（随机选择一个因子）
                 sample_idx = np.random.choice(normalized_scores.shape[0])
                 sample_scores = normalized_scores.iloc[sample_idx].values
-                membership_sensitivity = self.analyze_membership_sensitivity(sample_scores, num_iterations, perturbation_range)
+                membership_sensitivity = self.analyze_membership_sensitivity(sample_scores, num_iterations,
+                                                                             perturbation_range)
                 # 阈值影响分析
-                threshold_impact = self.analyze_threshold_impact(weight_vector, membership_matrix, thresholds, num_iterations,
+                threshold_impact = self.analyze_threshold_impact(weight_vector, membership_matrix, thresholds,
+                                                                 num_iterations,
                                                                  perturbation_range)
                 # 置信区间
                 expert_scores_flat = normalized_scores.values.flatten()
                 confidence_intervals = self.calculate_risk_confidence_interval(expert_scores_flat, weight_vector,
-                                                                              membership_matrix)
+                                                                               membership_matrix)
                 # 计算敏感度矩阵并生成热力图
-                sensitivity_matrix = self.calculate_factor_risk_sensitivity_matrix(expert_scores_df, weight_vector, membership_matrix)
+                sensitivity_matrix = self.calculate_factor_risk_sensitivity_matrix(expert_scores_df, weight_vector,
+                                                                                   membership_matrix)
                 self.generate_sensitivity_heatmap(sensitivity_matrix, expert_scores_df.index.tolist(),
                                                   f"{output_dir}sensitivity_heatmap.png")
 
@@ -313,7 +314,7 @@ class FuzzyEvaluator:
         """分析全局权重敏感度"""
         baseline_result = self.fuzzy_multiply(weight_vector, membership_matrix)
         sensitivity_results = {name: {'direct_sensitivity': 0.0, 'relative_influence': 0.0, 'rank_stability': 0.0}
-                              for name in factor_names}
+                               for name in factor_names}
 
         for idx, factor_name in enumerate(factor_names):
             if weight_vector[idx] <= 0:
@@ -338,7 +339,8 @@ class FuzzyEvaluator:
         total_sensitivity = sum(r['direct_sensitivity'] for r in sensitivity_results.values())
         if total_sensitivity > 0:
             for factor_name in sensitivity_results:
-                sensitivity_results[factor_name]['relative_influence'] = sensitivity_results[factor_name]['direct_sensitivity'] / total_sensitivity
+                sensitivity_results[factor_name]['relative_influence'] = sensitivity_results[factor_name][
+                                                                             'direct_sensitivity'] / total_sensitivity
         return sensitivity_results
 
     def analyze_membership_sensitivity(self, expert_scores: np.ndarray, num_iterations: int = 100,
@@ -346,7 +348,7 @@ class FuzzyEvaluator:
         """分析隶属度函数参数敏感度"""
         baseline_membership = self.calculate_membership_degree(expert_scores)
         sensitivity_results = {level: {'mean_variation': 0.0, 'std_deviation': 0.0, 'elasticity': 0.0}
-                              for level in self.risk_levels}
+                               for level in self.risk_levels}
         variations = []
 
         original_params = self.get_membership_parameters()
@@ -492,7 +494,8 @@ class FuzzyEvaluator:
         return perturbed
 
     def _generate_perturbed_parameters(self,
-                                       original_params: Dict[str, Tuple[float, float, float, float]], perturbation_range: float = 0.05) -> Dict[
+                                       original_params: Dict[str, Tuple[float, float, float, float]],
+                                       perturbation_range: float = 0.05) -> Dict[
         str, Tuple[float, float, float, float]]:
         """生成扰动后的隶属度函数参数
 
