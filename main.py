@@ -462,22 +462,25 @@ def perform_enhanced_fuzzy_evaluation(
             logging.info("执行敏感性分析...")
 
             # 单因素敏感性分析
-            #sensitivity_results = fuzzy_evaluator.perform_sensitivity_analysis(
-            #    factor_weights=significant_factors,
-            #    expert_scores=expert_scores,
-            #)
-            sensitivity_results = fuzzy_evaluator.enhanced_sensitivity_analysis(
+            sensitivity_results = fuzzy_evaluator.perform_sensitivity_analysis(
                 factor_weights=significant_factors,
                 expert_scores=expert_scores,
+                expert_weights=fce_expert_weights,
             )
+            #sensitivity_results = fuzzy_evaluator.enhanced_sensitivity_analysis(
+            #    factor_weights=significant_factors,
+            #    expert_scores=expert_scores,
+            #    expert_weights=fce_expert_weights,
+            #)
 
-            # 识别最敏感的两个因素进行交叉敏感性分析
+            ## 识别最敏感的两个因素进行交叉敏感性分析
             top_factors = sensitivity_results["ranked_factors"][:2]
             if len(top_factors) == 2:
                 cross_results = fuzzy_evaluator.cross_sensitivity_analysis(
                     factor_weights=significant_factors,
                     expert_scores=expert_scores,
                     factors=top_factors,
+                    expert_weights=fce_expert_weights,
                 )
             else:
                 cross_results = None

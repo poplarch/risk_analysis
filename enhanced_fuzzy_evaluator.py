@@ -221,6 +221,9 @@ class EnhancedFuzzyEvaluator:
         """
         # 确定是否使用动态隶属度函数
         use_dynamic = self.dynamic_enabled if use_dynamic is None else use_dynamic
+        if expert_weights is None:
+            logging.warning("FCE的专家权重为空，初始化为默认值")
+            expert_weights = [1.0/expert_scores.shape[0]] * expert_scores.shape[0]
         
         # 将专家评分转换为numpy数组并确保在[0,1]范围内
         scores = np.asarray(expert_scores, dtype=float)
@@ -344,13 +347,14 @@ class EnhancedFuzzyEvaluator:
         common_factors = set(expert_scores.keys()) & set(factor_weights.keys())
         if not common_factors:
             raise ValueError("专家评分和因素权重中没有共同的因素")
-        
+
         # 转换为有序列表，确保权重向量和隶属度矩阵对应
         ordered_factors = sorted(list(common_factors))
         
         # 计算每个因素的隶属度
         factor_membership = {}
         membership_matrix = np.zeros((len(ordered_factors), len(self.risk_levels)))
+        weight_vector = np.zeros(len(ordered_factors))
         
         for i, factor in enumerate(ordered_factors):
             # 计算隶属度
@@ -370,6 +374,10 @@ class EnhancedFuzzyEvaluator:
         
         # 计算风险指数
         risk_index = self.calculate_risk_index(integrated_result)
+
+        # 打印调试信息（实际使用时可以移除）
+        logging.debug(f"权重矢量: {weight_vector}")
+        logging.debug(f"风险指数: {risk_index}")
         
         # 构建结果字典
         result = {
@@ -614,7 +622,180 @@ class EnhancedFuzzyEvaluator:
 
         return normalized_weights
 
-    def enhanced_sensitivity_analysis(self, factor_weights: Dict[str, float],
+    def create_modified_weights(self, weights, modified_factor, variation):
+        """创建修改后的权重分布，保持其他因素的相对比例"""
+        original_weight = weights[modified_factor]
+        new_weight = max(0.001, original_weight * (1 + variation))
+
+        # 获取除修改因素外的总权重
+        other_weights_sum = sum(w for f, w in weights.items() if f != modified_factor)
+
+        # 计算其他权重需要的缩放比例
+        if other_weights_sum > 0:
+            scale_factor = (1 - new_weight) / other_weights_sum
+        else:
+            scale_factor = 0
+
+        # 创建新的权重字典
+        modified_weights = {}
+        for factor, weight in weights.items():
+            if factor == modified_factor:
+                modified_weights[factor] = new_weight
+            else:
+                modified_weights[factor] = weight * scale_factor
+
+        return modified_weights
+
+    def calculate_sensitivity(self, factor_weights, expert_scores, factor, variation_range=0.2):
+        """改进的敏感性计算方法"""
+        baseline_result = self.evaluate(expert_scores, factor_weights)
+        baseline_index = baseline_result["risk_index"]
+
+        # 避免基准值过小
+        if baseline_index < 1e-6:
+            return 0.0
+
+        # 使用多点拟合而不是只用两个端点
+        variations = np.linspace(-variation_range, variation_range, 5)
+        indices = []
+
+        for var in variations:
+            # 创建新的权重分布
+            modified_weights = self.create_modified_weights(factor_weights, factor, var)
+            result = self.evaluate(expert_scores, modified_weights)
+            indices.append(result["risk_index"])
+
+        # 使用线性回归计算斜率
+        if len(set(indices)) <= 1:  # 如果所有风险指数相同
+            return 0.0
+
+        try:
+            slope = np.polyfit(variations, indices, 1)[0]
+            sensitivity = slope * factor_weights[factor] / baseline_index
+            return sensitivity
+        except:
+            return 0.0
+
+    def enhanced_sensitivity_analysis(self, factor_weights, expert_scores, expert_weights, use_dynamic=None):
+        """重构的敏感性分析函数"""
+        # 计算基准评估
+        baseline_result = self.evaluate(expert_scores, factor_weights, expert_weights, use_dynamic)
+        baseline_risk_index = baseline_result["risk_index"]
+
+        # 如果基准风险指数无效，提前返回
+        if not np.isfinite(baseline_risk_index) or baseline_risk_index == 0:
+            logging.error("基准风险指数无效或为零，无法进行敏感性分析")
+            return {"sensitivity_indices": {factor: 0.0 for factor in factor_weights}}
+
+        # 初始化结果
+        sensitivity_indices = {}
+        variation_curves = {}
+
+        # 对每个因素进行敏感性分析
+        for factor in factor_weights:
+            original_weight = factor_weights[factor]
+            if original_weight <= 0:
+                sensitivity_indices[factor] = 0.0
+                continue
+
+            delta_indices = []
+            variations = [-0.2, -0.1, 0, 0.1, 0.2]  # 使用更多点以获取更稳定的估计
+            indices = []
+
+            for variation in variations:
+                # 创建新的权重分布（确保正确调整其他权重）
+                modified_weights = factor_weights.copy()
+
+                # 计算调整后的权重值
+                new_weight = max(0.001, original_weight * (1 + variation))
+                modified_weights[factor] = new_weight
+
+                # 重新分配其他权重，保持它们之间的相对比例
+                other_sum = sum(w for f, w in factor_weights.items() if f != factor)
+                remaining = 1.0 - new_weight
+
+                if other_sum > 0:
+                    # 按原比例分配剩余权重
+                    ratio = remaining / other_sum
+                    for f in modified_weights:
+                        if f != factor:
+                            modified_weights[f] = factor_weights[f] * ratio
+
+                # 确保权重和为1
+                weight_sum = sum(modified_weights.values())
+                if abs(weight_sum - 1.0) > 1e-6:
+                    modified_weights = {k: v / weight_sum for k, v in modified_weights.items()}
+
+                # 打印调试信息
+                print(f"Factor: {factor}, Variation: {variation}, Weights: {modified_weights}")
+
+                # 重要：使用新权重进行完整评估
+                result = self.evaluate(expert_scores, modified_weights, expert_weights, use_dynamic)
+                risk_index = result["risk_index"]
+
+                # 打印调试信息
+                print(f"  -> Risk Index: {risk_index}")
+
+                indices.append(risk_index)
+
+                # 计算相对变化
+                if variation != 0:
+                    delta = (risk_index - baseline_risk_index) / (variation * original_weight)
+                    delta_indices.append(delta)
+
+            # 如果有有效的变化
+            if delta_indices:
+                # 使用平均相对变化作为敏感性指标
+                sensitivity = np.mean(delta_indices)
+                if not np.isfinite(sensitivity):
+                    sensitivity = 0.0
+            else:
+                sensitivity = 0.0
+
+            sensitivity_indices[factor] = sensitivity
+            variation_curves[factor] = {"variations": variations, "risk_indices": indices}
+
+        # 添加以下调试代码
+        print("=============================================")
+        print("原始权重:", factor_weights)
+        print("基准风险指数:", baseline_risk_index)
+        print("基准模糊评价结果:", baseline_result["integrated_result"])
+
+        for factor in factor_weights:
+            print(f"\n分析因素: {factor}, 原始权重: {factor_weights[factor]}")
+
+            # 重要：验证权重修改是否生效
+            test_weights = factor_weights.copy()
+            test_weights[factor] *= 1.2  # 增加20%
+
+            # 确保权重和为1
+            weight_sum = sum(test_weights.values())
+            test_weights = {k: v / weight_sum for k, v in test_weights.items()}
+
+            print("测试修改权重:", test_weights)
+
+            # 重新评估
+            test_result = self.evaluate(expert_scores, test_weights, expert_weights, use_dynamic)
+            print("修改后风险指数:", test_result["risk_index"])
+            print("修改后模糊评价结果:", test_result["integrated_result"])
+
+            # 计算简单敏感性
+            weight_change = (test_weights[factor] - factor_weights[factor]) / factor_weights[factor]
+            index_change = (test_result["risk_index"] - baseline_risk_index) / baseline_risk_index
+
+            if weight_change != 0:
+                simple_sensitivity = index_change / weight_change
+                print(f"简单敏感性估计: {simple_sensitivity}")
+            else:
+                print("权重未发生实际变化")
+
+        return {
+            "sensitivity_indices": sensitivity_indices,
+            "variation_curves": variation_curves,
+            "baseline_risk_index": baseline_risk_index
+        }
+
+    def enhanced_sensitivity_analysis_(self, factor_weights: Dict[str, float],
                                       expert_scores: Dict[str, np.ndarray],
                                       use_dynamic: bool = None,
                                       variation_range: float = 0.2,
@@ -661,14 +842,15 @@ class EnhancedFuzzyEvaluator:
 
             # Calculate sensitivity with robust approach
             try:
+                sensitivity = self.calculate_sensitivity(factor_weights, expert_scores, factor, variation_range=0.2)
                 # Use central difference approximation for derivative
-                central_diff = (risk_indices[-1] - risk_indices[0]) / (2 * variation_range)
+                #central_diff = (risk_indices[-1] - risk_indices[0]) / (2 * variation_range)
 
-                # Calculate elasticity (normalized sensitivity)
-                if baseline_risk_index > epsilon:
-                    sensitivity = central_diff * original_weight / baseline_risk_index
-                else:
-                    sensitivity = central_diff * original_weight / epsilon
+                ## Calculate elasticity (normalized sensitivity)
+                #if baseline_risk_index > epsilon:
+                #    sensitivity = central_diff * original_weight / baseline_risk_index
+                #else:
+                #    sensitivity = central_diff * original_weight / epsilon
 
                 # Apply bounded normalization to prevent overflow
                 sensitivity = np.clip(sensitivity, -1.0, 1.0)
@@ -695,6 +877,7 @@ class EnhancedFuzzyEvaluator:
     def perform_sensitivity_analysis(self,
                                      factor_weights: Dict[str, float],
                                      expert_scores: Dict[str, np.ndarray],
+                                     expert_weights: list[float],
                                      use_dynamic: Optional[bool] = None,
                                      variation_range: float = 0.2,
                                      steps: int = 10) -> Dict[str, Any]:
@@ -704,6 +887,7 @@ class EnhancedFuzzyEvaluator:
         Args:
             factor_weights (Dict[str, float]): 因素权重
             expert_scores (Dict[str, np.ndarray]): 专家评分
+            expert_weights list[float]: FCE专家权重
             use_dynamic (Optional[bool]): 是否使用动态隶属度函数
             variation_range (float): 权重变化范围 (±)
             steps (int): 变化步数
@@ -712,7 +896,7 @@ class EnhancedFuzzyEvaluator:
             Dict[str, Any]: 敏感性分析结果
         """
         # 计算基准评价结果
-        baseline_result = self.evaluate(expert_scores, factor_weights, use_dynamic)
+        baseline_result = self.evaluate(expert_scores, factor_weights, expert_weights, use_dynamic)
         baseline_risk_index = baseline_result["risk_index"]
         ordered_factors = baseline_result["ordered_factors"]
 
@@ -743,7 +927,7 @@ class EnhancedFuzzyEvaluator:
                 modified_weights = {k: v / weight_sum for k, v in modified_weights.items()}
 
                 # 使用修改后的权重重新计算风险评价
-                result = self.evaluate(expert_scores, modified_weights, use_dynamic)
+                result = self.evaluate(expert_scores, modified_weights, expert_weights, use_dynamic)
                 risk_indices.append(result["risk_index"])
 
             # 计算敏感性指标 (风险指数变化率与权重变化率之比)
@@ -798,6 +982,71 @@ class EnhancedFuzzyEvaluator:
         self.evaluation_cache["latest_sensitivity"] = result
         return result
 
+    def _generate_modified_weights(self,
+                                   original_weights: Dict[str, float],
+                                   factor_changes: Dict[str, float],
+                                   epsilon: float = 1e-10) -> Dict[str, float]:
+        """
+        生成修改后的权重分布，同时支持修改多个因素的权重
+
+        Args:
+            original_weights (Dict[str, float]): 原始权重字典
+            factor_changes (Dict[str, float]): 要修改的因素及其变化比例 {因素名: 变化比例}
+                                              例如 {'风险1': 1.2} 表示风险1的权重增加20%
+            epsilon (float): 数值稳定性阈值
+
+        Returns:
+            Dict[str, float]: 修改后的权重字典，总和为1
+        """
+        # 创建修改后的权重字典副本
+        modified_weights = original_weights.copy()
+
+        # 计算原始的未修改因素总权重
+        unmodified_factors = [f for f in original_weights if f not in factor_changes]
+        unmodified_weight_sum = sum(original_weights[f] for f in unmodified_factors)
+
+        # 应用变化比例修改指定因素的权重
+        for factor, change_ratio in factor_changes.items():
+            if factor in original_weights:
+                # 应用变化比例（确保非负）
+                modified_weights[factor] = max(epsilon, original_weights[factor] * change_ratio)
+
+        # 计算修改后的因素总权重
+        modified_factors_weight = sum(modified_weights[f] for f in factor_changes if f in modified_weights)
+
+        # 处理特殊情况：如果总权重已超过1
+        if modified_factors_weight >= 1.0:
+            # 按比例缩小修改因素的权重
+            scale = (1.0 - epsilon) / modified_factors_weight
+            for factor in factor_changes:
+                if factor in modified_weights:
+                    modified_weights[factor] *= scale
+
+            # 给未修改因素分配极小权重
+            for factor in unmodified_factors:
+                modified_weights[factor] = epsilon / len(unmodified_factors) if len(unmodified_factors) > 0 else 0
+        else:
+            # 正常情况：为未修改因素按比例分配剩余权重
+            remaining_weight = 1.0 - modified_factors_weight
+
+            if unmodified_weight_sum > epsilon:
+                # 按原有比例分配
+                scale = remaining_weight / unmodified_weight_sum
+                for factor in unmodified_factors:
+                    modified_weights[factor] = original_weights[factor] * scale
+            elif len(unmodified_factors) > 0:
+                # 均分剩余权重
+                equal_weight = remaining_weight / len(unmodified_factors)
+                for factor in unmodified_factors:
+                    modified_weights[factor] = equal_weight
+
+        # 最终归一化
+        weight_sum = sum(modified_weights.values())
+        if abs(weight_sum - 1.0) > epsilon and weight_sum > epsilon:
+            return {k: v / weight_sum for k, v in modified_weights.items()}
+
+        return modified_weights
+
     def _calculate_cross_sensitivity_matrix(self,
                                             factor1_values: np.ndarray,
                                             factor2_values: np.ndarray,
@@ -807,8 +1056,8 @@ class EnhancedFuzzyEvaluator:
         计算交叉敏感性矩阵，增强NaN处理能力
 
         Args:
-            factor1_values (np.ndarray): 第一个因素的变化率数组
-            factor2_values (np.ndarray): 第二个因素的变化率数组
+            factor1_values (np.ndarray): 第一个因素的变化比例数组 (如[0.8, 0.9, 1.0, 1.1, 1.2])
+            factor2_values (np.ndarray): 第二个因素的变化比例数组
             baseline_risk (float): 基准风险值
             variation_steps (int): 变化步数
 
@@ -846,7 +1095,7 @@ class EnhancedFuzzyEvaluator:
                     continue
 
                 try:
-                    # 修改当前权重配置
+                    # 创建修改后的权重分布
                     modified_weights = self._generate_modified_weights(
                         self.current_factor_weights,
                         {self.current_factors[0]: var1, self.current_factors[1]: var2}
@@ -878,17 +1127,6 @@ class EnhancedFuzzyEvaluator:
                                    steps: int = 5) -> Dict[str, Any]:
         """
         交叉敏感性分析，评估两个风险因素同时变化的影响
-
-        Args:
-            factor_weights (Dict[str, float]): 因素权重
-            expert_scores (Dict[str, np.ndarray]): 专家评分
-            factors (List[str]): 要分析的两个风险因素
-            use_dynamic (Optional[bool]): 是否使用动态隶属度函数
-            variation_range (float): 权重变化范围 (±)
-            steps (int): 变化步数
-
-        Returns:
-            Dict[str, Any]: 交叉敏感性分析结果
         """
         if len(factors) != 2:
             raise ValueError("交叉敏感性分析需要指定两个风险因素")
@@ -916,18 +1154,23 @@ class EnhancedFuzzyEvaluator:
         # 提取两个因素
         factor1, factor2 = factors
 
-        # 使用辅助方法生成敏感性矩阵
+        # 修复：将变化率转换为变化比例（1+变化率）
+        # 这是关键修复点！
+        factor1_values = [1 + v for v in variations]  # 例如：[0.8, 0.9, 1.0, 1.1, 1.2]
+        factor2_values = [1 + v for v in variations]  # 例如：[0.8, 0.9, 1.0, 1.1, 1.2]
+
+        # 使用辅助方法生成敏感性矩阵，传递正确的参数类型
         risk_matrix = self._calculate_cross_sensitivity_matrix(
-            [1 + v for v in variations],  # factor1的变化率
-            [1 + v for v in variations],  # factor2的变化率
-            baseline_risk_index,
-            steps
+            factor1_values=factor1_values,  # 变化比例，而非变化率
+            factor2_values=factor2_values,  # 变化比例，而非变化率
+            baseline_risk=baseline_risk_index,
+            variation_steps=steps
         )
 
         # 整合结果
         result = {
             "risk_matrix": risk_matrix,
-            "variations": variations,
+            "variations": variations,  # 保持原始变化率用于显示
             "factors": factors,
             "baseline_risk_index": baseline_risk_index,
             "has_valid_data": not np.all(np.isnan(risk_matrix))
