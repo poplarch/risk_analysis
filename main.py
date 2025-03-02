@@ -25,6 +25,7 @@ from enhanced_fuzzy_evaluator import EnhancedFuzzyEvaluator
 from excel_handler import ExcelDataHandler, ExcelExporter
 from risk_sensitivity_analyzer import RiskSensitivityAnalyzer
 from risk_visualization import RiskVisualization
+from visualizer import Visualizer
 
 
 # 配置日志
@@ -498,18 +499,19 @@ def perform_enhanced_fuzzy_evaluation(
         raise
 
 
-def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[str, Any], fuzzy_result: np.array) -> None:
+def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[str, Any], evaluation_results: Dict[str, Any]) -> None:
+    fuzzy_result = np.array(evaluation_results["integrated_result"])
     # 创建敏感性分析器
     analyzer = RiskSensitivityAnalyzer(global_weights, fuzzy_result)
 
     # 执行单因素敏感性分析
     single_factor_results = analyzer.single_factor_sensitivity()
 
-    top_factors = single_factor_results["ranked_factors"][:2]
+    #top_factors = single_factor_results["ranked_factors"][:2]
     # 执行交叉敏感性分析
-    cross_factor_results = analyzer.cross_factor_sensitivity(
-        factors=top_factors
-    )
+    #cross_factor_results = analyzer.cross_factor_sensitivity(
+    #    factors=top_factors
+    #)
 
     # 执行蒙特卡洛敏感性分析
     #monte_carlo_results = analyzer.monte_carlo_sensitivity(num_simulations=500)
@@ -528,7 +530,7 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
     visualizer.plot_global_weights_pie(global_weights)
 
     # 绘制模糊综合评价隶属度柱状图
-    visualizer.plot_fuzzy_membership_bar(fuzzy_result)
+    visualizer.plot_fuzzy_membership_bar(np.array(fuzzy_result))
 
     # 绘制敏感性雷达图
     visualizer.plot_sensitivity_radar(single_factor_results["sensitivity_indices"])
@@ -536,6 +538,7 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
     # 绘制敏感性Tornado图
     #visualizer.plot_sensitivity_tornado(single_factor_results["sensitivity_indices"])
 
+    cross_factor_results = evaluation_results["cross_sensitivity"]
     # 绘制风险影响热力图
     visualizer.plot_risk_heatmap(
         cross_factor_results["risk_matrix"],
@@ -870,6 +873,7 @@ def main():
         # 打印权重结果
         print("\n========== 权重分析结果 ==========")
         present_hierarchical_weights(criteria_weights, sub_criteria_weights, global_weights)
+        Visualizer.plot_weights_pie(criteria_weights, title="一级风险因素局部权重", output_path=f"{output_dir}visualizations/criteria_weights_pie.png")
 
         # 执行增强型模糊综合评价
         print("\n========== 模糊综合评价 ==========")
@@ -902,8 +906,7 @@ def main():
 
         # 可视化结果
         sorted_criteria_weights = dict(sorted(criteria_weights.items(), key=lambda item: item[1], reverse=True))
-        visualize_results_(sorted_criteria_weights, significant_factors,
-                           np.array(evaluation_results["integrated_result"]))
+        visualize_results_(sorted_criteria_weights, significant_factors, evaluation_results)
 
         #visualize_results(evaluation_results, config, output_dir)
 
