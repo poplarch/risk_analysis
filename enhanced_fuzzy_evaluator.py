@@ -1540,7 +1540,6 @@ class EnhancedFuzzyEvaluator:
         try:
             # 1. 绘制敏感性指标条形图
             plt.figure(figsize=(12, 6))
-
             # 提取前top_n个因素数据
             top_factors = ranked_factors[:min(top_n, len(ranked_factors))]
             top_indices = [sensitivity_indices[f] for f in top_factors]

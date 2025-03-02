@@ -505,16 +505,17 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
     # 执行单因素敏感性分析
     single_factor_results = analyzer.single_factor_sensitivity()
 
+    top_factors = single_factor_results["ranked_factors"][:2]
     # 执行交叉敏感性分析
     cross_factor_results = analyzer.cross_factor_sensitivity(
-        factors=["监管风险C6.2", "政策风险C6.1"]
+        factors=top_factors
     )
 
     # 执行蒙特卡洛敏感性分析
-    monte_carlo_results = analyzer.monte_carlo_sensitivity(num_simulations=500)
+    #monte_carlo_results = analyzer.monte_carlo_sensitivity(num_simulations=500)
 
     # 计算风险阈值影响
-    threshold_impact = analyzer.calculate_threshold_impact()
+    #threshold_impact = analyzer.calculate_threshold_impact()
 
     # 创建可视化器
     visualizer = RiskVisualization(output_dir="output/visualizations")
@@ -533,7 +534,7 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
     visualizer.plot_sensitivity_radar(single_factor_results["sensitivity_indices"])
 
     # 绘制敏感性Tornado图
-    visualizer.plot_sensitivity_tornado(single_factor_results["sensitivity_indices"])
+    #visualizer.plot_sensitivity_tornado(single_factor_results["sensitivity_indices"])
 
     # 绘制风险影响热力图
     visualizer.plot_risk_heatmap(
@@ -548,28 +549,28 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
     #    threshold_impact["baseline_category"]
     #)
 
-    visualizer.plot_risk_level_transition(
-        threshold_impact["risk_distribution"],
-        threshold_impact["baseline_category"]
-    )
+    #visualizer.plot_risk_level_transition(
+    #    threshold_impact["risk_distribution"],
+    #    threshold_impact["baseline_category"]
+    #)
 
-    visualizer.plot_risk_level_network(
-        threshold_impact["risk_distribution"],
-        threshold_impact["baseline_category"]
-    )
+    #visualizer.plot_risk_level_network(
+    #    threshold_impact["risk_distribution"],
+    #    threshold_impact["baseline_category"]
+    #)
 
 
     # 绘制蒙特卡洛模拟散点图
-    visualizer.plot_monte_carlo_scatter(
-        monte_carlo_results["risk_indices"],
-        monte_carlo_results["simulation_weights"]
-    )
+    #visualizer.plot_monte_carlo_scatter(
+    #    monte_carlo_results["risk_indices"],
+    #    monte_carlo_results["simulation_weights"]
+    #)
 
     # 绘制风险分布图
-    visualizer.plot_risk_distribution(
-        monte_carlo_results["risk_indices"],
-        monte_carlo_results["risk_stats"]
-    )
+    #visualizer.plot_risk_distribution(
+    #    monte_carlo_results["risk_indices"],
+    #    monte_carlo_results["risk_stats"]
+    #)
 
     print("所有图表已生成!")
 
@@ -903,6 +904,8 @@ def main():
         sorted_criteria_weights = dict(sorted(criteria_weights.items(), key=lambda item: item[1], reverse=True))
         visualize_results_(sorted_criteria_weights, significant_factors,
                            np.array(evaluation_results["integrated_result"]))
+
+        #visualize_results(evaluation_results, config, output_dir)
 
         # 导出评价结果
         export_evaluation_results(evaluation_results, output_dir)
