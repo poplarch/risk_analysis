@@ -768,16 +768,16 @@ def print_evaluation_summary(evaluation_results: Dict[str, Any]) -> None:
         print(f"\n综合风险指数: {risk_index:.4f}")
 
         # 风险指数解释
-        if risk_index < 0.3:
+        if risk_index <= 0.2:
+            risk_level = "极低风险"
+        elif risk_index <= 0.4:
             risk_level = "低风险"
-        elif risk_index < 0.5:
-            risk_level = "中低风险"
-        elif risk_index < 0.7:
+        elif risk_index <= 0.6:
             risk_level = "中风险"
-        elif risk_index < 0.9:
-            risk_level = "中高风险"
-        else:
+        elif risk_index <= 0.8:
             risk_level = "高风险"
+        else:
+            risk_level = "极高风险"
 
         print(f"风险等级判定: {risk_level}")
 
@@ -920,7 +920,7 @@ def main():
         sorted_criteria_weights = dict(sorted(criteria_weights.items(), key=lambda item: item[1], reverse=True))
         visualize_results_(sorted_criteria_weights, significant_factors, evaluation_results)
 
-        # visualize_results(evaluation_results, config, output_dir)
+        #visualize_results(evaluation_results, config, output_dir)
 
         # 导出评价结果
         export_evaluation_results(evaluation_results, output_dir)
