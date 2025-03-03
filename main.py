@@ -884,6 +884,7 @@ def main():
         # 打印权重结果
         print("\n========== 权重分析结果 ==========")
         present_hierarchical_weights(criteria_weights, sub_criteria_weights, global_weights)
+        
         Visualizer.plot_weights_pie(criteria_weights, title="一级风险因素局部权重",
                                     output_path=f"{output_dir}visualizations/criteria_weights_pie.png")
 
