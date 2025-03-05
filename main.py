@@ -768,13 +768,14 @@ def print_evaluation_summary(evaluation_results: Dict[str, Any]) -> None:
         print(f"\n综合风险指数: {risk_index:.4f}")
 
         # 风险指数解释
-        if risk_index <= 0.2:
+        # 风险指数区间是[1.5, 9.5]，按照8/5划分5个区间
+        if risk_index < 3.1:
             risk_level = "极低风险"
-        elif risk_index <= 0.4:
+        elif risk_index < 4.7:
             risk_level = "低风险"
-        elif risk_index <= 0.6:
+        elif risk_index < 6.3:
             risk_level = "中风险"
-        elif risk_index <= 0.8:
+        elif risk_index < 7.9:
             risk_level = "高风险"
         else:
             risk_level = "极高风险"

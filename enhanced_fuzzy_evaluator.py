@@ -315,8 +315,8 @@ class EnhancedFuzzyEvaluator:
             float: 风险指数值(0-1)
         """
         # 风险等级对应的数值评分
-        # VL=0.1, L=0.3, M=0.5, H=0.7, VH=0.9
-        level_values = np.array([0.1, 0.3, 0.5, 0.7, 0.9])
+        # VL=1.5, L=3.5, M=5.5, H=7.5, VH=9.5 评分区间中位数
+        level_values = np.array([1.5, 3.5, 5.5, 7.5, 9.5])
 
         # 计算加权平均
         risk_index = np.sum(fuzzy_vector * level_values)
