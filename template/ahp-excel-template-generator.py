@@ -113,6 +113,55 @@ def create_ahp_template(
 
 def main():
     # AHP 层级结构模型
+    ahp_model_ = {
+        "Goal": {
+            "criteria": {
+                "C1": "技术风险",
+                "C2": "管理风险",
+                "C3": "运维风险",
+                "C4": "供应链风险",
+                "C5": "合规风险",
+            },
+        },
+        "技术风险C1": {
+            "criteria": {
+                "C1.1": "可靠性风险",
+                "C1.2": "性能风险",
+                "C1.3": "功能不完善",
+                "C1.4": "安全风险",
+                "C1.5": "扩展性风险",
+                "C1.6": "代码质量风险",
+                "C1.7": "测试质量风险",
+            },
+        },
+        "管理风险C2": {
+            "criteria": {
+                "C2.1": "沟通风险",
+                "C2.2": "人力风险",
+                "C2.3": "进度风险",
+            },
+        },
+        "运维风险C3": {
+            "criteria": {
+                "C3.1": "设备故障风险",
+                "C3.2": "应急处置风险",
+                "C3.3": "监控机制缺失",
+            },
+        },
+        "供应链风险C4": {
+            "criteria": {
+                "C4.1": "成本风险",
+                "C4.2": "合同风险",
+                "C4.3": "产品维保风险",
+            },
+        },
+        "合规风险C5": {
+            "criteria": {
+                "C5.1": "政策风险",
+                "C5.2": "监管风险",
+            },
+        },
+    }
     ahp_model = {
         "Goal": {
             "criteria": {
@@ -176,7 +225,7 @@ def main():
         },
     }
 
-    for key, value in ahp_model.items():
+    for key, value in ahp_model_.items():
         output_file = f"ahp_template_{key}.xlsx"
         criteria = [
             f"{cn_name}{en_key}" for en_key, cn_name in value["criteria"].items()
