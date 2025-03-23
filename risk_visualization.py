@@ -3,7 +3,7 @@ import functools
 import logging
 import os
 import platform
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -99,6 +99,7 @@ class RiskVisualization:
             dpi (int): 图像分辨率
             risk_levels (List[str]): 风险等级列表
         """
+        self.logger = logging.getLogger(__name__)
         self.output_dir = output_dir
         self.dpi = dpi
         self.risk_levels = risk_levels or ["VL", "L", "M", "H", "VH"]
@@ -340,6 +341,265 @@ class RiskVisualization:
         print(f"模糊隶属度柱状图已保存到: {output_path}")
 
     def plot_sensitivity_radar(self,
+                               sensitivity_indices: Dict[str, float],
+                               title: str = "风险因素敏感性分析",
+                               top_n: int = 8,
+                               filename: Optional[str] = None) -> None:
+        """
+        绘制改进的风险敏感性雷达图，使用颜色区分正负敏感性
+
+        参数:
+            sensitivity_indices (Dict[str, float]): 敏感性指标字典
+            title (str): 图表标题
+            top_n (int): 显示敏感性最大的前N个因素
+            output_path (Optional[str]): 输出文件路径
+        """
+        # 确保数据有效性
+        if not sensitivity_indices:
+            self.logger.warning("没有提供敏感性数据，无法生成雷达图")
+            return None
+
+        # 记录原始数据特征，用于调试
+        values = list(sensitivity_indices.values())
+        self.logger.info(f"敏感性指标范围: {min(values)} 到 {max(values)}")
+
+        if max(abs(v) for v in values) < 1e-10:
+            self.logger.warning("敏感性值异常小，可能存在数值问题")
+            return None
+
+        # 根据敏感性绝对值排序，选择TOP-N关键因素
+        sorted_indices = sorted(
+            sensitivity_indices.items(),
+            key=lambda x: abs(x[1]),
+            reverse=True
+        )
+
+        # 选择前N个敏感性最大的因素
+        selected_indices = sorted_indices[:min(top_n, len(sorted_indices))]
+
+        # 提取数据 - 保留原始值（不取绝对值）
+        factors = [item[0] for item in selected_indices]
+        values = [item[1] for item in selected_indices]
+
+        # 创建图形
+        plt.figure(figsize=(10, 8))
+        ax = plt.subplot(111, polar=True)
+
+        # 计算角度
+        angles = np.linspace(0, 2 * np.pi, len(factors), endpoint=False).tolist()
+
+        # 闭合图形
+        angles += angles[:1]
+        factors += factors[:1]
+        values += values[:1]
+
+        # 根据敏感性方向选择颜色
+        colors = [
+            'red' if val >= 0 else 'blue'
+            for val in values[:-1]  # 不包括闭合点
+        ]
+
+        # 正负分开绘制，便于使用不同颜色
+        # 首先绘制线条
+        ax.plot(angles, [abs(v) for v in values], 'o-', linewidth=2, color='gray')
+
+        # 然后为每个点单独设置颜色
+        for i, (angle, value) in enumerate(zip(angles[:-1], values[:-1])):
+            ax.plot([angle], [abs(value)], 'o', color=colors[i], markersize=8)
+
+        # 添加填充
+        ax.fill(angles, [abs(v) for v in values], alpha=0.25, color='lightgray')
+
+        # 设置极轴标签
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(factors[:-1], fontproperties=self.font_properties)
+
+        # 添加方向图例
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor='red', edgecolor='red', label='正向敏感性'),
+            Patch(facecolor='blue', edgecolor='blue', label='负向敏感性')
+        ]
+        ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.1, 0.1),
+                  prop=self.font_properties)
+
+        # 设置标题
+        plt.title(title, fontproperties=self.font_properties, fontsize=14, y=1.08)
+
+        # 添加说明文字
+        plt.figtext(0.5, 0.01,
+                    "正向敏感性(红色): 权重增加导致风险上升\n负向敏感性(蓝色): 权重增加导致风险下降",
+                    ha="center", fontproperties=self.font_properties, fontsize=10)
+
+        # 保存图表
+        output_path = os.path.join(self.output_dir, filename)
+        if output_path:
+            plt.savefig(output_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            self.logger.info(f"敏感性雷达图已保存至: {output_path}")
+        else:
+            plt.tight_layout()
+            plt.show()
+
+    def plot_sensitivity_analysis(self,
+                                  sensitivity_results: Dict[str, Any],
+                                  output_dir: str = 'output/visualizations'):
+        """
+        综合可视化敏感性分析结果，根据工程管理需求生成实用图表
+
+        参数:
+            sensitivity_results (Dict[str, Any]): 敏感性分析结果
+            output_dir (str): 输出目录
+        """
+        # 确保输出目录存在
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 提取数据
+        sensitivity_indices = sensitivity_results.get("sensitivity_indices", {})
+        critical_factors = sensitivity_results.get("critical_factors", [])
+        mean_sensitivity = sensitivity_results.get("mean_sensitivity", 0)
+
+        # 1. 绘制条形图 - 最适合展示正负敏感性的实用图表
+        plt.figure(figsize=(12, 8))
+
+        # 准备数据，确保关键因素排在前面
+        sorted_factors = sorted(
+            sensitivity_indices.items(),
+            key=lambda x: (x[0] not in critical_factors, -abs(x[1]))
+        )
+
+        factors = [item[0] for item in sorted_factors]
+        values = [item[1] for item in sorted_factors]
+
+        # 根据敏感性正负选择颜色
+        colors = ['#3498db' if v >= 0 else '#e74c3c' for v in values]
+
+        # 绘制条形图
+        bars = plt.bar(factors, values, color=colors)
+
+        # 添加均值参考线
+        plt.axhline(y=mean_sensitivity, color='green', linestyle='--',
+                    label=f'平均敏感性: {mean_sensitivity:.6f}')
+
+        # 添加数值标签
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(
+                bar.get_x() + bar.get_width() / 2.,
+                height * 1.02 if height >= 0 else height * 1.02,
+                f'{height:.6f}',
+                ha='center', va='center', fontsize=9,
+                color='black', rotation=90
+            )
+
+        # 设置图表属性
+        plt.title("风险因素敏感性分析", fontproperties=self.font_properties, fontsize=14)
+        plt.xlabel("风险因素", fontproperties=self.font_properties, fontsize=12)
+        plt.ylabel("敏感性指标", fontproperties=self.font_properties, fontsize=12)
+        plt.xticks(rotation=45, ha='right', fontproperties=self.font_properties)
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.legend(prop=self.font_properties)
+
+        # 标记关键风险因素
+        for i, factor in enumerate(factors):
+            if factor in critical_factors:
+                plt.gca().get_xticklabels()[i].set_fontweight('bold')
+
+        # 添加说明
+        plt.figtext(0.5, 0.01,
+                    "蓝色: 正向敏感性 (权重增加，风险上升) | 红色: 负向敏感性 (权重增加，风险下降)",
+                    ha='center', fontproperties=self.font_properties)
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+        plt.savefig(os.path.join(output_dir, 'sensitivity_bars.png'), dpi=300)
+        plt.close()
+
+        # 2. 绘制优化后的雷达图
+        self.plot_sensitivity_radar(
+            sensitivity_indices=sensitivity_indices,
+            title="风险因素敏感性雷达图",
+            top_n=8,
+            output_path=os.path.join(output_dir, 'sensitivity_radar.png')
+        )
+
+        # 3. 为关键风险因素创建管理响应表（可选）
+        if sensitivity_results.get("variation_curves"):
+            self._create_risk_response_table(
+                sensitivity_results,
+                output_path=os.path.join(output_dir, 'risk_responses.png')
+            )
+
+        return True
+
+    def _create_risk_response_table(self,
+                                    sensitivity_results: Dict[str, Any],
+                                    output_path: str):
+        """
+        创建关键风险因素的管理响应表，便于工程管理决策
+
+        参数:
+            sensitivity_results (Dict[str, Any]): 敏感性分析结果
+            output_path (str): 输出文件路径
+        """
+        # 提取数据
+        sensitivity_indices = sensitivity_results.get("sensitivity_indices", {})
+        critical_factors = sensitivity_results.get("critical_factors", [])
+
+        # 如果没有关键因素，返回
+        if not critical_factors:
+            return
+
+        # 创建图形
+        fig, ax = plt.subplots(figsize=(12, len(critical_factors) * 0.8 + 2))
+        ax.axis('tight')
+        ax.axis('off')
+
+        # 准备表格数据
+        table_data = []
+        headers = ["风险因素", "敏感性指标", "方向", "权重变化影响", "建议的管理响应"]
+
+        for factor in critical_factors:
+            sensitivity = sensitivity_indices.get(factor, 0)
+            direction = "正向" if sensitivity >= 0 else "负向"
+            impact = "权重增加导致风险上升" if sensitivity >= 0 else "权重增加导致风险下降"
+
+            # 基于敏感性方向给出管理建议
+            if sensitivity >= 0:
+                response = "减轻风险: 降低权重，加强控制"
+            else:
+                response = "加强监管: 提高权重，利用负向关系"
+
+            table_data.append([factor, f"{sensitivity:.6f}", direction, impact, response])
+
+        # 创建表格
+        table = ax.table(cellText=table_data, colLabels=headers, loc='center',
+                         cellLoc='center', colColours=['#f2f2f2'] * 5)
+
+        # 设置表格样式
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+
+        # 调整表格大小
+        table.scale(1, 1.5)
+
+        # 为正负敏感性设置不同颜色
+        for i, row in enumerate(table_data):
+            sensitivity = float(row[1])
+            cell = table[i + 1, 1]  # 敏感性指标列
+            if sensitivity >= 0:
+                cell.set_facecolor('#d4efdf')  # 浅绿色
+            else:
+                cell.set_facecolor('#fadbd8')  # 浅红色
+
+        # 设置标题
+        plt.title("关键风险因素管理响应表", fontproperties=self.font_properties, fontsize=14, pad=20)
+
+        # 保存图表
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+    def plot_sensitivity_radar_bugs(self,
                                sensitivity_indices: Dict[str, float],
                                title: str = "风险因素敏感性雷达图",
                                top_n: int = 8,

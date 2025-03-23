@@ -511,10 +511,10 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
                        evaluation_results: Dict[str, Any]) -> None:
     fuzzy_result = np.array(evaluation_results["integrated_result"])
     # 创建敏感性分析器
-    analyzer = RiskSensitivityAnalyzer(global_weights, fuzzy_result)
+    #analyzer = RiskSensitivityAnalyzer(global_weights, fuzzy_result)
 
-    # 执行单因素敏感性分析
-    single_factor_results = analyzer.single_factor_sensitivity()
+    # 执行单因素敏感性分析 BUGS
+    #single_factor_results = analyzer.single_factor_sensitivity()
 
     # top_factors = single_factor_results["ranked_factors"][:2]
     # 执行交叉敏感性分析
@@ -541,11 +541,20 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
     # 绘制模糊综合评价隶属度柱状图
     visualizer.plot_fuzzy_membership_bar(np.array(fuzzy_result))
 
+    sensitivity_results = evaluation_results["sensitivity_analysis"]
+    sensitivity_indices = sensitivity_results.get("sensitivity_indices", {})
     # 绘制敏感性雷达图
-    visualizer.plot_sensitivity_radar(single_factor_results["sensitivity_indices"])
+    visualizer.plot_sensitivity_radar(
+        #sensitivity_indices=single_factor_results["sensitivity_indices"],
+        sensitivity_indices=sensitivity_indices,
+        title="风险因素敏感性雷达图",
+        filename="sensitivity_radar.png"
+    )
+    #visualizer.plot_sensitivity_radar_bugs(sensitivity_indices)
 
     # 绘制敏感性Tornado图
-    # visualizer.plot_sensitivity_tornado(single_factor_results["sensitivity_indices"])
+    #visualizer.plot_sensitivity_tornado(single_factor_results["sensitivity_indices"])
+    #visualizer.plot_sensitivity_tornado(sensitivity_indices)
 
     cross_factor_results = evaluation_results["cross_sensitivity"]
     # 绘制风险影响热力图
