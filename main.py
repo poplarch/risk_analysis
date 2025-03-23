@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # TODO: 层次分析法支持4层模型，包括目标层、准则层、指标层、方案层（可选）
 # TODO: 增加GUI支持、多层次模糊综合评价法
+# TODO: 增加黑白打印类，可视化结果更加适合学术论文展示
 # BUG: temp路径下的图片，在Excel保存后自动清理
 #       日志现在无法写入
-#        龙卷风图太大无法生成
+#        龙卷风图清晰度差
 """
 风险分析工具主程序
 支持AHP和增强型FCE方法的集成风险分析系统
@@ -544,7 +545,7 @@ def visualize_results_(criteria_weights: Dict[str, Any], global_weights: Dict[st
     sensitivity_results = evaluation_results["sensitivity_analysis"]
     sensitivity_indices = sensitivity_results.get("sensitivity_indices", {})
     # 绘制敏感性雷达图
-    visualizer.plot_sensitivity_radar(
+    visualizer.plot_sensitivity_radar_bw(
         #sensitivity_indices=single_factor_results["sensitivity_indices"],
         sensitivity_indices=sensitivity_indices,
         title="风险因素敏感性雷达图",

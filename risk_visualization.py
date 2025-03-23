@@ -599,6 +599,101 @@ class RiskVisualization:
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
 
+    def plot_sensitivity_radar_bw(
+            self, sensitivity_indices: Dict[str, float],
+            title: str = "风险因素敏感性雷达图",
+            top_n: int = 8,
+            filename: str = "sensitivity_radar.png"
+    ) -> None:
+        """
+        绘制适用于黑白打印的敏感性雷达图
+
+        Args:
+            sensitivity_indices: 敏感性指标字典
+            title: 图表标题
+            top_n: 显示敏感性最大的前N个因素
+            filename: 输出文件名
+        """
+        # 根据敏感性绝对值排序
+        sorted_indices = sorted(
+            sensitivity_indices.items(),
+            key=lambda x: abs(x[1]),
+            reverse=True
+        )
+
+        # 选择前N个因素
+        selected_indices = sorted_indices[:min(top_n, len(sorted_indices))]
+
+        # 提取数据 - 保留原始值
+        factors = [item[0] for item in selected_indices]
+        values = [item[1] for item in selected_indices]
+
+        # 创建图形
+        plt.figure(figsize=(10, 8))
+        ax = plt.subplot(111, polar=True)
+
+        # 计算角度
+        angles = np.linspace(0, 2 * np.pi, len(factors), endpoint=False).tolist()
+        angles += angles[:1]  # 闭合图形
+        factors += factors[:1]
+        values += values[:1]
+
+        # 分别绘制正向和负向敏感性
+        positive_angles = []
+        positive_values = []
+        negative_angles = []
+        negative_values = []
+
+        for i, val in enumerate(values[:-1]):  # 不包括闭合点
+            if val >= 0:
+                positive_angles.append(angles[i])
+                positive_values.append(abs(val))
+            else:
+                negative_angles.append(angles[i])
+                negative_values.append(abs(val))
+
+        # 绘制主轮廓线
+        ax.plot(angles, [abs(v) for v in values], 'k-', linewidth=1.5)
+
+        # 绘制正向敏感性（实心圆点）
+        if positive_angles:
+            ax.plot(positive_angles, positive_values, 'ko', markersize=8)
+
+        # 绘制负向敏感性（空心圆点）
+        if negative_angles:
+            ax.plot(negative_angles, negative_values, 'ko', markersize=8, mfc='white')
+
+        # 添加填充
+        ax.fill(angles, [abs(v) for v in values], alpha=0.1, color='gray')
+
+        # 设置极轴标签
+        font_prop = self.font_properties
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(factors[:-1], fontproperties=font_prop)
+
+        # 添加方向图例
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Line2D([0], [0], marker='o', color='k', label='正向敏感性',
+                   markerfacecolor='k', markersize=8),
+            Line2D([0], [0], marker='o', color='k', label='负向敏感性',
+                   markerfacecolor='white', markersize=8)
+        ]
+        ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.1, 0.1),
+                  prop=font_prop)
+
+        # 设置标题
+        plt.title(title, fontproperties=font_prop, fontsize=14, y=1.08)
+
+        # 保存图表
+        output_path = os.path.join(self.output_dir, filename)
+        if output_path:
+            plt.savefig(output_path, dpi=300, bbox_inches='tight')
+            plt.close()
+        else:
+            plt.tight_layout()
+            plt.show()
+
     def plot_sensitivity_radar_bugs(self,
                                sensitivity_indices: Dict[str, float],
                                title: str = "风险因素敏感性雷达图",
